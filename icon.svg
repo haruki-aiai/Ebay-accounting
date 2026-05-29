@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="112" fill="#1a1a1a"/>
+  <g transform="translate(96 300)">
+    <rect x="0"   y="-40"  width="56" height="116" rx="10" fill="#2563eb"/>
+    <rect x="80"  y="-96"  width="56" height="172" rx="10" fill="#16a34a"/>
+    <rect x="160" y="-150" width="56" height="226" rx="10" fill="#22c55e"/>
+    <rect x="240" y="-70"  width="56" height="146" rx="10" fill="#2563eb"/>
+  </g>
+  <text x="256" y="150" font-family="-apple-system, Helvetica, Arial, sans-serif" font-size="120" font-weight="700" fill="#ffffff" text-anchor="middle">¥</text>
+</svg>

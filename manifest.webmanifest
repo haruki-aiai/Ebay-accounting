@@ -1,0 +1,16 @@
+{
+  "name": "eBay 収支管理",
+  "short_name": "eBay会計",
+  "description": "eBay輸出販売の収支をスクショから自動記録・閲覧",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f4f4f0",
+  "theme_color": "#1a1a1a",
+  "icons": [
+    { "src": "./icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "./icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "./icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

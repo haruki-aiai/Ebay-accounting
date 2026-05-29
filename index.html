@@ -1,0 +1,860 @@
+<!DOCTYPE html>
+<script type="application/json" id="cowork-artifact-meta">
+{
+  "name": "Ebay Accounting",
+  "schemaVersion": 1,
+  "description": "eBay取引スクショをアップロードするだけで自動入力。原価・送料を追加するだけで収支を自動計算。モバイル対応。Claude Vision API連携。"
+}
+</script>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, viewport-fit=cover">
+<title>eBay 収支管理</title>
+<link rel="manifest" href="./manifest.webmanifest">
+<meta name="theme-color" content="#1a1a1a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="eBay会計">
+<link rel="apple-touch-icon" href="./icon-192.png">
+<link rel="icon" type="image/png" href="./icon-192.png">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js" integrity="sha384-iU8HYtnGQ8Cy4zl7gbNMOhsDTTKX02BTXptVP/vqAWIaTfM7isw76iyZCsjL2eVi" crossorigin="anonymous"></script>
+<style>
+:root {
+  --bg: #f4f4f0;
+  --card: #ffffff;
+  --border: #e8e8e2;
+  --text: #1a1a1a;
+  --sub: #888;
+  --hint: #bbb;
+  --green: #16a34a;
+  --red: #dc2626;
+  --blue: #2563eb;
+  --accent: #1a1a1a;
+  --radius: 14px;
+  --nav-h: 68px;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+html, body { height: 100%; overflow: hidden; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Yu Gothic', sans-serif;
+       font-size: 14px; background: var(--bg); color: var(--text); }
+
+/* ── Layout ── */
+.app { display: flex; flex-direction: column; height: 100vh; }
+.topbar { background: var(--card); border-bottom: 1px solid var(--border);
+          padding: 12px 16px; display: flex; align-items: center; justify-content: space-between;
+          flex-shrink: 0; }
+.topbar-title { font-size: 15px; font-weight: 700; }
+.topbar-sub { font-size: 11px; color: var(--sub); margin-top: 1px; }
+.content { flex: 1; overflow-y: auto; padding: 14px 14px calc(var(--nav-h) + 14px); }
+
+/* ── Bottom nav ── */
+.nav { position: fixed; bottom: 0; left: 0; right: 0; height: var(--nav-h);
+       background: var(--card); border-top: 1px solid var(--border);
+       display: flex; z-index: 100; }
+.nav-item { flex: 1; display: flex; flex-direction: column; align-items: center;
+            justify-content: center; gap: 4px; font-size: 10px; color: var(--sub);
+            cursor: pointer; border: none; background: none; font-weight: 500;
+            padding-bottom: env(safe-area-inset-bottom, 0); }
+.nav-item.active { color: var(--accent); }
+.nav-icon { font-size: 22px; line-height: 1; }
+.nav-add { background: var(--accent); color: #fff; border-radius: 50%;
+           width: 52px; height: 52px; font-size: 28px; display: flex; align-items: center;
+           justify-content: center; margin-bottom: 6px; box-shadow: 0 4px 14px rgba(0,0,0,0.2); }
+
+/* ── Cards ── */
+.card { background: var(--card); border-radius: var(--radius); border: 1px solid var(--border);
+        padding: 16px; margin-bottom: 10px; }
+.card-title { font-size: 11px; font-weight: 700; color: var(--sub); text-transform: uppercase;
+              letter-spacing: 0.06em; margin-bottom: 12px; }
+
+/* ── Metrics ── */
+.metrics { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 10px; }
+@media (min-width: 480px) { .metrics { grid-template-columns: repeat(4, 1fr); } }
+.metric { background: var(--card); border-radius: 12px; border: 1px solid var(--border); padding: 12px 14px; }
+.metric-label { font-size: 11px; color: var(--sub); margin-bottom: 4px; }
+.metric-value { font-size: 18px; font-weight: 700; }
+.green { color: var(--green); } .red { color: var(--red); } .blue { color: var(--blue); }
+
+/* ── Buttons ── */
+.btn { padding: 9px 16px; border-radius: 10px; font-size: 13px; font-weight: 600;
+       cursor: pointer; border: 1px solid var(--border); background: var(--card); color: var(--text); }
+.btn:active { opacity: 0.7; }
+.btn-primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+.btn-danger  { color: var(--red); border-color: #fecaca; }
+.btn-copy    { color: var(--blue); border-color: #bfdbfe; }
+.btn-sm { padding: 5px 10px; font-size: 12px; border-radius: 8px; }
+.btn-full { width: 100%; text-align: center; display: block; padding: 13px; }
+
+/* ── Form fields ── */
+.field { display: flex; flex-direction: column; gap: 5px; }
+.field label { font-size: 12px; color: #555; font-weight: 600; }
+.field input, .field select, .field textarea {
+  padding: 11px 12px; border: 1.5px solid var(--border); border-radius: 10px;
+  font-size: 15px; color: var(--text); background: var(--card); outline: none; width: 100%;
+  -webkit-appearance: none; }
+.field input:focus, .field select:focus { border-color: var(--blue); }
+.field .hint { font-size: 11px; color: var(--hint); }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+@media (max-width: 400px) { .grid3 { grid-template-columns: 1fr 1fr; } }
+
+/* ── Badges ── */
+.badge { display: inline-flex; align-items: center; padding: 3px 8px; border-radius: 20px; font-size: 11px; font-weight: 600; }
+.bg-green  { background: #dcfce7; color: #15803d; }
+.bg-red    { background: #fee2e2; color: #b91c1c; }
+.bg-gray   { background: #f3f4f6; color: #6b7280; }
+.bg-blue   { background: #dbeafe; color: #1d4ed8; }
+.bg-purple { background: #ede9fe; color: #6d28d9; }
+
+/* ── Table ── */
+.table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+table { width: 100%; border-collapse: collapse; font-size: 12px; min-width: 540px; }
+thead th { text-align: left; padding: 6px 8px; font-size: 10px; color: var(--sub);
+           font-weight: 700; border-bottom: 1px solid var(--border); white-space: nowrap; }
+tbody tr { border-bottom: 1px solid #f5f5f2; }
+tbody td { padding: 9px 8px; vertical-align: middle; }
+.td-r { text-align: right; }
+
+/* ── Profit preview ── */
+.calc-box { background: #f7fdf9; border: 1.5px solid #d1fae5; border-radius: 12px; padding: 14px; margin-top: 12px; }
+.calc-row { display: flex; justify-content: space-between; align-items: center; padding: 4px 0; font-size: 13px; }
+.calc-total { border-top: 1px solid #a7f3d0; margin-top: 6px; padding-top: 10px; font-weight: 700; font-size: 15px; }
+.profit-pos { color: var(--green); } .profit-neg { color: var(--red); }
+
+/* ── Upload zone ── */
+.upload-zone { border: 2px dashed var(--border); border-radius: var(--radius); padding: 28px 16px;
+               text-align: center; cursor: pointer; background: #fafaf8; transition: all 0.15s; }
+.upload-zone:hover, .upload-zone.dragover { border-color: var(--blue); background: #eff6ff; }
+.upload-zone input { display: none; }
+.upload-icon { font-size: 36px; margin-bottom: 8px; }
+.upload-title { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+.upload-sub { font-size: 12px; color: var(--sub); }
+
+/* ── Scan result ── */
+.scan-chip { background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px;
+             padding: 10px 14px; margin-bottom: 14px; font-size: 13px; color: #1e40af; }
+
+/* ── Overlay / Modal ── */
+.overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.45); z-index: 200;
+           display: flex; align-items: flex-end; justify-content: center; }
+.sheet { background: var(--card); border-radius: 20px 20px 0 0; padding: 20px 16px 32px;
+         width: 100%; max-width: 540px; max-height: 90vh; overflow-y: auto; }
+.sheet-handle { width: 40px; height: 4px; background: #ddd; border-radius: 2px; margin: 0 auto 16px; }
+.sheet-title { font-size: 17px; font-weight: 700; margin-bottom: 16px; }
+@media (min-width: 540px) {
+  .overlay { align-items: center; }
+  .sheet { border-radius: 20px; max-height: 85vh; }
+}
+
+/* ── Step indicator ── */
+.steps { display: flex; gap: 6px; margin-bottom: 16px; align-items: center; }
+.step-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--border); }
+.step-dot.active { background: var(--accent); }
+.step-label { font-size: 12px; color: var(--sub); margin-left: 4px; }
+
+/* ── Spinner ── */
+.spinner { display: inline-block; width: 20px; height: 20px; border: 2.5px solid #ddd;
+           border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.loading-row { display: flex; align-items: center; gap: 10px; padding: 12px; font-size: 13px; color: var(--sub); }
+
+/* ── Toast ── */
+.toast { position: fixed; bottom: calc(var(--nav-h) + 12px); left: 50%;
+         transform: translateX(-50%) translateY(10px); background: #1a1a1a; color: #fff;
+         padding: 10px 18px; border-radius: 24px; font-size: 13px; font-weight: 500;
+         opacity: 0; transition: all 0.22s; pointer-events: none; z-index: 999; white-space: nowrap; }
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* ── Category bar ── */
+.cat-bar { display: flex; gap: 6px; overflow-x: auto; margin-bottom: 12px; padding-bottom: 2px; }
+.cat-bar::-webkit-scrollbar { display: none; }
+.cat-pill { padding: 5px 14px; border-radius: 20px; font-size: 12px; font-weight: 600;
+            cursor: pointer; border: 1.5px solid var(--border); background: var(--card);
+            color: var(--sub); white-space: nowrap; flex-shrink: 0; }
+.cat-pill.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+/* ── Empty ── */
+.empty { text-align: center; padding: 40px 16px; color: var(--hint); }
+.empty-icon { font-size: 44px; margin-bottom: 10px; }
+
+/* ── Chart ── */
+.chart-wrap { position: relative; height: 160px; margin-top: 8px; }
+
+/* ── API key banner ── */
+.key-banner { background: #fffbeb; border: 1.5px solid #fcd34d; border-radius: var(--radius);
+              padding: 14px; margin-bottom: 12px; }
+.key-banner-title { font-size: 13px; font-weight: 700; color: #92400e; margin-bottom: 6px; }
+.key-banner p { font-size: 12px; color: #b45309; margin-bottom: 8px; }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="topbar">
+    <div>
+      <div class="topbar-title">eBay 収支管理</div>
+      <div class="topbar-sub" id="topbar-sub">読み込み中…</div>
+    </div>
+    <button class="btn btn-sm" onclick="openSettings()">設定</button>
+  </div>
+  <div class="content" id="content"></div>
+  <nav class="nav">
+    <button class="nav-item active" id="nav-dashboard" onclick="switchTab('dashboard')">
+      <span class="nav-icon">📊</span>ダッシュボード
+    </button>
+    <button class="nav-item" id="nav-add" onclick="openAddSheet()">
+      <div class="nav-add">＋</div>
+    </button>
+    <button class="nav-item" id="nav-history" onclick="switchTab('history')">
+      <span class="nav-icon">📋</span>取引履歴
+    </button>
+  </nav>
+</div>
+
+<div class="toast" id="toast"></div>
+<div class="overlay" id="overlay" style="display:none"></div>
+
+<script>
+// ── State ─────────────────────────────────────────────────────────────────────
+let transactions = JSON.parse(localStorage.getItem('ebay_txns') || '[]');
+// One-time cleanup: remove the fabricated Frieren sample transactions
+if (!localStorage.getItem('ebay_cleanup_v1')) {
+  transactions = transactions.filter(t => !(t.id && t.id.startsWith('frieren_')));
+  localStorage.setItem('ebay_txns', JSON.stringify(transactions));
+  localStorage.setItem('ebay_cleanup_v1', '1');
+}
+// One-time add: real Frieren AMP+ figure sale (from eBay order detail)
+if (!localStorage.getItem('ebay_add_frieren_amp')) {
+  transactions.push({
+    id: 'frieren_amp_01', date: '2026-05-28',
+    name: '葬送のフリーレン AMP+ フィギュア 21cm (タイトー)',
+    category: 'フィギュア', salePriceUsd: 45.00, rate: 159,
+    ebayFeeMode: 'usd', ebayFeeUsd: 7.84, ebayFeeRate: 0,
+    costJpy: 1500, shippingJpy: 4400, otherCostJpy: 0,
+    memo: 'eBay収益 $37.16'
+  });
+  localStorage.setItem('ebay_txns', JSON.stringify(transactions));
+  localStorage.setItem('ebay_add_frieren_amp', '1');
+}
+// Update cost/shipping if the transaction was already added with zeros
+(function() {
+  const t = transactions.find(x => x.id === 'frieren_amp_01');
+  if (t && !localStorage.getItem('ebay_frieren_amp_costfix')) {
+    t.costJpy = 1500; t.shippingJpy = 4400;
+    localStorage.setItem('ebay_txns', JSON.stringify(transactions));
+    localStorage.setItem('ebay_frieren_amp_costfix', '1');
+  }
+})();
+let settings = JSON.parse(localStorage.getItem('ebay_settings') || '{"defaultRate":155,"ebayFeeRate":13.25,"gasUrl":"","gasToken":""}');
+let currentTab = 'dashboard';
+let historyFilter = '';
+let chartInstance = null;
+
+// Form state for add sheet
+let addState = { step: 1, scanned: null, imageBase64: null, feeMode: 'pct' };
+
+function save() {
+  // ローカル（オフラインキャッシュ）に保存
+  localStorage.setItem('ebay_txns', JSON.stringify(transactions));
+  localStorage.setItem('ebay_settings', JSON.stringify(settings));
+  // クラウド（Googleシート）へ同期
+  syncToCloud();
+}
+
+let _syncing = false;
+function syncToCloud() {
+  if (!settings.gasUrl) return; // 未設定ならローカルのみ
+  _syncing = true; updateSyncBadge();
+  fetch(settings.gasUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    body: JSON.stringify({ action: 'save', token: settings.gasToken || '', txns: transactions })
+  })
+  .then(r => r.json())
+  .then(res => { if (!res.ok) throw new Error(res.error || '同期失敗'); })
+  .catch(err => showToast('⚠️ クラウド同期エラー: ' + err.message, 3000))
+  .finally(() => { _syncing = false; updateSyncBadge(); });
+}
+
+async function loadFromCloud() {
+  if (!settings.gasUrl) return;
+  try {
+    const url = settings.gasUrl + (settings.gasToken ? '?token=' + encodeURIComponent(settings.gasToken) : '');
+    const res = await fetch(url);
+    const data = await res.json();
+    if (data.ok && Array.isArray(data.txns)) {
+      transactions = data.txns;
+      localStorage.setItem('ebay_txns', JSON.stringify(transactions));
+      render();
+    }
+  } catch (err) {
+    showToast('⚠️ クラウド読込エラー（ローカル表示）', 2500);
+  }
+}
+
+function updateSyncBadge() {
+  const el = document.getElementById('syncBadge');
+  if (!el) return;
+  if (!settings.gasUrl) { el.textContent = 'ローカルのみ'; el.style.color = 'var(--hint)'; }
+  else if (_syncing)    { el.textContent = '同期中…';     el.style.color = 'var(--blue)'; }
+  else                  { el.textContent = '☁ 同期済み';   el.style.color = 'var(--green)'; }
+}
+function genId() { return Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
+function fmt(n) { return Math.round(n).toLocaleString('ja-JP'); }
+function esc(s) { return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function catClass(c) {
+  return c === 'フィギュア' ? 'bg-purple' : c === '釣り具' ? 'bg-blue' : c === 'ゲーム' ? 'bg-green' : 'bg-gray';
+}
+function showToast(msg, dur=2000) {
+  const el = document.getElementById('toast');
+  el.textContent = msg; el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), dur);
+}
+
+// ── Calc ──────────────────────────────────────────────────────────────────────
+function calcProfit(t) {
+  const rate = t.rate || settings.defaultRate;
+  const rev = t.salePriceUsd * rate;
+  const fee = t.ebayFeeMode === 'usd' ? (t.ebayFeeUsd || 0) * rate : rev * ((t.ebayFeeRate || 0) / 100);
+  const ship = t.shippingJpy || 0;
+  const cost = t.costJpy || 0;
+  const other = t.otherCostJpy || 0;
+  const profit = rev - fee - cost - ship - other;
+  return { rev, fee, ship, cost, other, profit, margin: rev > 0 ? profit / rev * 100 : 0 };
+}
+
+// ── Tab ───────────────────────────────────────────────────────────────────────
+function switchTab(tab) {
+  currentTab = tab;
+  ['dashboard','history'].forEach(t => {
+    document.getElementById('nav-'+t)?.classList.toggle('active', t === tab);
+  });
+  if (chartInstance) { chartInstance.destroy(); chartInstance = null; }
+  render();
+}
+
+function render() {
+  const el = document.getElementById('content');
+  if (currentTab === 'dashboard') { el.innerHTML = renderDashboard(); initChart(); }
+  else el.innerHTML = renderHistory();
+  // topbar sub
+  const all = transactions.map(t => calcProfit(t));
+  const totalProfit = all.reduce((s,p) => s+p.profit, 0);
+  document.getElementById('topbar-sub').textContent =
+    `${transactions.length}件 ・ 累計利益 ¥${fmt(totalProfit)}`;
+}
+
+// ── Dashboard ─────────────────────────────────────────────────────────────────
+function renderDashboard() {
+  const now = new Date();
+  const ym = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+  const monthT = transactions.filter(t => (t.date||'').startsWith(ym));
+  const allP = transactions.map(calcProfit);
+  const mP = monthT.map(calcProfit);
+
+  const mRev = mP.reduce((s,p)=>s+p.rev,0), mProfit = mP.reduce((s,p)=>s+p.profit,0);
+  const tRev = allP.reduce((s,p)=>s+p.rev,0), tProfit = allP.reduce((s,p)=>s+p.profit,0);
+  const avgM = allP.length ? allP.reduce((s,p)=>s+p.margin,0)/allP.length : 0;
+
+  // monthly chart
+  const mMap = {};
+  transactions.forEach(t => {
+    const m = (t.date||'').slice(0,7); if (!m) return;
+    if (!mMap[m]) mMap[m] = {rev:0,profit:0};
+    const p = calcProfit(t); mMap[m].rev+=p.rev; mMap[m].profit+=p.profit;
+  });
+  const months6 = Object.keys(mMap).sort().slice(-6);
+  window._cd = { months: months6, profits: months6.map(m=>Math.round(mMap[m].profit)), revs: months6.map(m=>Math.round(mMap[m].rev)) };
+
+  // category breakdown
+  const catMap = {};
+  transactions.forEach(t => {
+    const c = t.category||'未分類';
+    if (!catMap[c]) catMap[c] = {count:0,profit:0};
+    catMap[c].count++; catMap[c].profit += calcProfit(t).profit;
+  });
+
+  const recent = [...transactions].sort((a,b)=>(b.date||'')>(a.date||'')?1:-1).slice(0,5);
+
+  const apiWarning = !settings.gasUrl ? `
+    <div class="key-banner">
+      <div class="key-banner-title">☁ クラウド同期＆スクショ自動読込を有効にする</div>
+      <p>設定からGoogle Apps ScriptのURLを登録すると、複数端末で同期でき、eBayの取引スクショを撮るだけで自動入力できます。</p>
+      <button class="btn btn-sm btn-primary" onclick="openSettings()">設定を開く</button>
+    </div>` : '';
+
+  return `${apiWarning}
+  <div class="metrics">
+    <div class="metric"><div class="metric-label">今月の売上</div><div class="metric-value blue">¥${fmt(mRev)}</div></div>
+    <div class="metric"><div class="metric-label">今月の利益</div><div class="metric-value ${mProfit>=0?'green':'red'}">¥${fmt(mProfit)}</div></div>
+    <div class="metric"><div class="metric-label">累計利益</div><div class="metric-value ${tProfit>=0?'green':'red'}">¥${fmt(tProfit)}</div></div>
+    <div class="metric"><div class="metric-label">平均利益率</div><div class="metric-value ${avgM>=0?'green':'red'}">${avgM.toFixed(1)}%</div></div>
+  </div>
+
+  ${months6.length>0?`<div class="card"><div class="card-title">月次推移（直近6ヶ月）</div><div class="chart-wrap"><canvas id="profitChart"></canvas></div></div>`:''}
+
+  <div class="card">
+    <div class="card-title">カテゴリ別</div>
+    ${Object.entries(catMap).map(([c,v])=>`
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;border-bottom:1px solid #f5f5f2">
+        <span class="badge ${catClass(c)}">${esc(c)}</span>
+        <div style="text-align:right">
+          <div style="font-weight:700;font-size:13px;color:${v.profit>=0?'var(--green)':'var(--red)'}">¥${fmt(v.profit)}</div>
+          <div style="font-size:11px;color:var(--sub)">${v.count}件</div>
+        </div>
+      </div>`).join('')}
+  </div>
+
+  <div class="card">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+      <div class="card-title" style="margin-bottom:0">最近の取引</div>
+      <button class="btn btn-sm" onclick="switchTab('history')">すべて →</button>
+    </div>
+    ${recent.length===0?`<div class="empty"><div class="empty-icon">📦</div><p>＋ ボタンから最初の取引を追加</p></div>`:`
+    <div class="table-wrap"><table>
+      <thead><tr><th>日付</th><th>商品名</th><th>USD</th><th>利益</th><th>%</th><th></th></tr></thead>
+      <tbody>${recent.map(t=>{const p=calcProfit(t);return`<tr>
+        <td style="color:var(--sub);font-size:11px;white-space:nowrap">${t.date||'-'}</td>
+        <td style="max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(t.name)}</td>
+        <td class="td-r">$${Number(t.salePriceUsd).toFixed(0)}</td>
+        <td class="td-r" style="font-weight:600;color:${p.profit>=0?'var(--green)':'var(--red)'}">¥${fmt(p.profit)}</td>
+        <td class="td-r"><span class="badge ${p.margin>=20?'bg-green':p.margin>=0?'bg-gray':'bg-red'}">${p.margin.toFixed(0)}%</span></td>
+        <td><button class="btn btn-copy btn-sm" onclick="cloneTxn('${t.id}')">複製</button></td>
+      </tr>`;}).join('')}</tbody>
+    </table></div>`}
+  </div>`;
+}
+
+function initChart() {
+  const d = window._cd; if (!d||d.months.length===0) return;
+  const ctx = document.getElementById('profitChart'); if (!ctx) return;
+  chartInstance = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: d.months.map(m=>{const[y,mo]=m.split('-');return`${y}/${mo}`;}),
+      datasets: [
+        {label:'売上',data:d.revs,backgroundColor:'rgba(37,99,235,0.12)',borderColor:'rgba(37,99,235,0.7)',borderWidth:1.5,borderRadius:4},
+        {label:'利益',data:d.profits,backgroundColor:'rgba(22,163,74,0.18)',borderColor:'rgba(22,163,74,0.85)',borderWidth:1.5,borderRadius:4}
+      ]
+    },
+    options: {
+      responsive:true, maintainAspectRatio:false,
+      plugins:{legend:{labels:{font:{size:11},boxWidth:10}}},
+      scales:{
+        y:{ticks:{callback:v=>'¥'+fmt(v),font:{size:10}},grid:{color:'#f0f0eb'}},
+        x:{ticks:{font:{size:10}},grid:{display:false}}
+      }
+    }
+  });
+}
+
+// ── History ───────────────────────────────────────────────────────────────────
+function renderHistory() {
+  if (transactions.length===0) return `<div class="card"><div class="empty"><div class="empty-icon">📋</div><p>まだ取引がありません</p></div></div>`;
+  const cats = ['',...new Set(transactions.map(t=>t.category).filter(Boolean))];
+  const filtered = historyFilter ? transactions.filter(t=>t.category===historyFilter) : transactions;
+  const mMap = {};
+  [...filtered].sort((a,b)=>(b.date||'')>(a.date||'')?1:-1).forEach(t=>{
+    const m=(t.date||'不明').slice(0,7); if(!mMap[m]) mMap[m]=[]; mMap[m].push(t);
+  });
+  const months = Object.keys(mMap).sort().reverse();
+  const catBar = `<div class="cat-bar">
+    ${cats.map(c=>`<button class="cat-pill ${historyFilter===c?'on':''}" onclick="setHFilter('${c}')">${c||'すべて'}</button>`).join('')}
+  </div>`;
+  return catBar + months.map(m=>{
+    const txns=mMap[m];
+    const tRev=txns.reduce((s,t)=>s+calcProfit(t).rev,0);
+    const tP=txns.reduce((s,t)=>s+calcProfit(t).profit,0);
+    const [y,mo]=m.split('-');
+    return `<div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px">
+        <div style="font-weight:700">${y}年${mo}月 <span style="font-weight:400;color:var(--sub);font-size:12px">${txns.length}件</span></div>
+        <div style="text-align:right;font-size:12px">
+          <span style="color:var(--sub)">売上 </span><strong style="color:var(--blue)">¥${fmt(tRev)}</strong>
+          <span style="color:var(--sub);margin-left:8px">利益 </span><strong style="color:${tP>=0?'var(--green)':'var(--red)'}">¥${fmt(tP)}</strong>
+        </div>
+      </div>
+      <div class="table-wrap"><table>
+        <thead><tr><th>日付</th><th>商品名</th><th>USD</th><th>レート</th><th>売上(¥)</th><th>手数料</th><th>原価</th><th>送料</th><th>利益</th><th>%</th><th></th></tr></thead>
+        <tbody>${txns.map(t=>{const p=calcProfit(t);return`<tr>
+          <td style="color:var(--sub);font-size:11px;white-space:nowrap">${t.date||'-'}</td>
+          <td style="max-width:130px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${esc(t.name)}">${esc(t.name)}${t.category?` <span class="badge ${catClass(t.category)}" style="font-size:10px">${esc(t.category)}</span>`:''}</td>
+          <td class="td-r">$${Number(t.salePriceUsd).toFixed(2)}</td>
+          <td class="td-r" style="color:var(--hint)">${t.rate}</td>
+          <td class="td-r">¥${fmt(p.rev)}</td>
+          <td class="td-r" style="color:var(--sub)">¥${fmt(p.fee)}</td>
+          <td class="td-r" style="color:var(--sub)">¥${fmt(t.costJpy)}</td>
+          <td class="td-r" style="color:var(--sub)">¥${fmt(t.shippingJpy)}</td>
+          <td class="td-r" style="font-weight:700;color:${p.profit>=0?'var(--green)':'var(--red)'}">¥${fmt(p.profit)}</td>
+          <td class="td-r"><span class="badge ${p.margin>=20?'bg-green':p.margin>=0?'bg-gray':'bg-red'}">${p.margin.toFixed(0)}%</span></td>
+          <td style="white-space:nowrap">
+            <button class="btn btn-copy btn-sm" onclick="cloneTxn('${t.id}')">複製</button>
+            <button class="btn btn-danger btn-sm" onclick="deleteTxn('${t.id}')">削除</button>
+          </td>
+        </tr>`;}).join('')}</tbody>
+      </table></div>
+    </div>`;
+  }).join('');
+}
+function setHFilter(c) { historyFilter=c; render(); }
+
+// ── Add Sheet (3-step) ────────────────────────────────────────────────────────
+function openAddSheet(prefill) {
+  addState = { step: prefill?2:1, scanned: prefill||null, imageBase64: null, feeMode: prefill?.ebayFeeMode||'pct' };
+  renderSheet();
+}
+
+function renderSheet() {
+  const ov = document.getElementById('overlay');
+  ov.innerHTML = `<div class="sheet" onclick="event.stopPropagation()">
+    <div class="sheet-handle"></div>
+    ${addState.step===1 ? renderStep1() : renderStep2()}
+  </div>`;
+  ov.style.display = 'flex';
+  ov.onclick = () => closeSheet();
+  if (addState.step===2) setTimeout(updatePreview, 50);
+}
+
+function closeSheet() {
+  document.getElementById('overlay').style.display = 'none';
+  addState = { step:1, scanned:null, imageBase64:null, feeMode:'pct' };
+}
+
+// Step 1: Upload or skip
+function renderStep1() {
+  const hasKey = !!settings.gasUrl;
+  return `
+    <div class="sheet-title">取引を追加</div>
+    <div class="steps">
+      <div class="step-dot active"></div><div class="step-dot"></div>
+      <span class="step-label">ステップ 1 / 2</span>
+    </div>
+
+    ${hasKey ? `
+    <div class="upload-zone" id="uploadZone" onclick="document.getElementById('imgInput').click()"
+         ondragover="event.preventDefault();this.classList.add('dragover')"
+         ondragleave="this.classList.remove('dragover')"
+         ondrop="handleDrop(event)">
+      <input type="file" id="imgInput" accept="image/*" capture="environment" onchange="handleFile(this.files[0])">
+      <div class="upload-icon">📷</div>
+      <div class="upload-title">eBayの取引スクショをアップロード</div>
+      <div class="upload-sub">タップしてカメラ / ファイルを選択<br>ドラッグ＆ドロップも可</div>
+    </div>
+    <div style="text-align:center;margin:14px 0;font-size:12px;color:var(--sub)">または</div>
+    ` : `
+    <div class="key-banner" style="margin-bottom:14px">
+      <div class="key-banner-title">📷 スクショ自動読込</div>
+      <p>設定でGoogle Apps ScriptのURLを登録すると有効になります。</p>
+    </div>
+    `}
+    <button class="btn btn-full" onclick="goStep2Manual()">手動で入力する</button>
+  `;
+}
+
+function handleDrop(e) {
+  e.preventDefault();
+  document.getElementById('uploadZone').classList.remove('dragover');
+  const f = e.dataTransfer.files[0];
+  if (f && f.type.startsWith('image/')) handleFile(f);
+}
+
+function handleFile(file) {
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => {
+    const b64 = e.target.result.split(',')[1];
+    addState.imageBase64 = b64;
+    addState.step = 2;
+    renderSheet();
+    // Show loading then call API
+    scanImage(b64, file.type || 'image/jpeg');
+  };
+  reader.readAsDataURL(file);
+}
+
+async function scanImage(b64, mimeType) {
+  const scanEl = document.getElementById('scanStatus');
+  if (!scanEl) return;
+  scanEl.innerHTML = `<div class="loading-row"><div class="spinner"></div> スクショを解析中…</div>`;
+
+  try {
+    // 解析はGAS（サーバー）経由。APIキーはサーバー側にのみ保管される。
+    const res = await fetch(settings.gasUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action: 'parse', token: settings.gasToken || '', image: b64, mime: mimeType })
+    });
+    if (!res.ok) throw new Error(`サーバーエラー ${res.status}`);
+    const data = await res.json();
+    if (!data.ok) throw new Error(data.error || '解析に失敗しました');
+    const json = data.parsed || {};
+
+    addState.scanned = {
+      name: json.name || '',
+      salePriceUsd: json.salePriceUsd || '',
+      ebayFeeMode: json.ebayFeeUsd != null ? 'usd' : 'pct',
+      ebayFeeUsd: json.ebayFeeUsd || '',
+      ebayFeeRate: json.ebayFeePct || settings.ebayFeeRate,
+      date: json.date || new Date().toISOString().slice(0,10),
+      rate: settings.defaultRate
+    };
+    addState.feeMode = addState.scanned.ebayFeeMode;
+
+    if (scanEl) {
+      scanEl.innerHTML = `<div class="scan-chip">✅ 自動読込完了！内容を確認して保存してください。</div>`;
+      setTimeout(() => renderSheet(), 600);
+    }
+  } catch(err) {
+    if (scanEl) scanEl.innerHTML = `<div style="color:var(--red);font-size:13px;padding:10px">読込エラー: ${esc(err.message)}<br><small>手動で入力してください</small></div>`;
+  }
+}
+
+function goStep2Manual() {
+  addState.step = 2;
+  addState.scanned = null;
+  renderSheet();
+}
+
+// Step 2: Fill in details
+function renderStep2() {
+  const s = addState.scanned || {};
+  const today = new Date().toISOString().slice(0,10);
+  const fm = addState.feeMode;
+  const pastNames = [...new Set(transactions.map(t=>t.name).filter(Boolean))];
+
+  return `
+    <div class="sheet-title">取引の詳細</div>
+    <div class="steps">
+      <div class="step-dot"></div><div class="step-dot active"></div>
+      <span class="step-label">ステップ 2 / 2</span>
+      <button style="margin-left:auto;font-size:12px;color:var(--blue);background:none;border:none;cursor:pointer" onclick="addState.step=1;renderSheet()">← 戻る</button>
+    </div>
+
+    <div id="scanStatus"></div>
+
+    <datalist id="ns">${pastNames.map(n=>`<option value="${esc(n)}">`).join('')}</datalist>
+
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <div class="grid2">
+        <div class="field"><label>日付</label><input type="date" id="a_date" value="${s.date||today}"></div>
+        <div class="field">
+          <label>カテゴリ</label>
+          <select id="a_cat">
+            <option value="">未分類</option>
+            <option value="フィギュア" ${s.category==='フィギュア'?'selected':''}>フィギュア</option>
+            <option value="釣り具" ${s.category==='釣り具'?'selected':''}>釣り具</option>
+            <option value="ゲーム" ${s.category==='ゲーム'?'selected':''}>ゲーム</option>
+            <option value="その他" ${s.category==='その他'?'selected':''}>その他</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="field"><label>商品名</label>
+        <input type="text" id="a_name" list="ns" placeholder="例: フリーレン 1/7フィギュア" value="${esc(s.name||'')}">
+      </div>
+
+      <div class="grid2">
+        <div class="field"><label>販売価格 (USD) ★</label>
+          <input type="number" id="a_sale" placeholder="0.00" step="0.01" min="0" value="${s.salePriceUsd||''}" oninput="updatePreview()">
+          <span class="hint">eBay小計（税抜き）</span>
+        </div>
+        <div class="field"><label>為替レート</label>
+          <input type="number" id="a_rate" value="${s.rate||settings.defaultRate}" step="0.1" min="1" oninput="updatePreview()">
+        </div>
+      </div>
+
+      <div class="field">
+        <label style="display:flex;align-items:center;gap:8px">
+          eBay取引手数料
+          <span style="display:flex;background:#f0f0eb;border-radius:6px;padding:2px;margin-left:2px">
+            <button id="busd" onclick="setFM('usd')" style="padding:2px 9px;font-size:11px;border:none;border-radius:4px;cursor:pointer;background:${fm==='usd'?'#fff':'transparent'};font-weight:${fm==='usd'?'700':'400'}">USD額</button>
+            <button id="bpct" onclick="setFM('pct')" style="padding:2px 9px;font-size:11px;border:none;border-radius:4px;cursor:pointer;background:${fm==='pct'?'#fff':'transparent'};font-weight:${fm==='pct'?'700':'400'}">%</button>
+          </span>
+        </label>
+        <div id="fw_usd" style="display:${fm==='usd'?'flex':'none'};align-items:center;gap:6px">
+          <span style="color:var(--sub)">$</span>
+          <input type="number" id="a_feeUsd" placeholder="0.00" step="0.01" min="0" value="${s.ebayFeeUsd||''}" oninput="updatePreview()" style="flex:1">
+        </div>
+        <div id="fw_pct" style="display:${fm==='pct'?'flex':'none'};align-items:center;gap:6px">
+          <input type="number" id="a_feePct" placeholder="13.25" step="0.01" min="0" value="${s.ebayFeeRate!==undefined?s.ebayFeeRate:settings.ebayFeeRate}" oninput="updatePreview()" style="flex:1">
+          <span style="color:var(--sub)">%</span>
+        </div>
+      </div>
+
+      <div class="grid2">
+        <div class="field"><label>仕入れ原価 (円) ★</label>
+          <input type="number" id="a_cost" placeholder="0" step="100" min="0" value="${s.costJpy||''}" oninput="updatePreview()">
+        </div>
+        <div class="field"><label>国際送料 (円) ★</label>
+          <input type="number" id="a_ship" placeholder="0" step="100" min="0" value="${s.shippingJpy||''}" oninput="updatePreview()">
+        </div>
+      </div>
+
+      <div class="field"><label>その他コスト (円)</label>
+        <input type="number" id="a_other" placeholder="0" step="100" min="0" value="${s.otherCostJpy||''}" oninput="updatePreview()">
+        <span class="hint">関税・梱包材など</span>
+      </div>
+
+      <div class="field"><label>メモ</label>
+        <input type="text" id="a_memo" placeholder="任意" value="${esc(s.memo||'')}">
+      </div>
+    </div>
+
+    <div class="calc-box" id="calcPreview">
+      <div style="font-size:11px;font-weight:700;color:var(--sub);letter-spacing:.06em;margin-bottom:8px">利益プレビュー</div>
+      <div class="calc-row"><span>売上（円換算）</span><span id="p_rev">—</span></div>
+      <div class="calc-row" style="color:var(--sub)"><span> eBay手数料</span><span id="p_fee">—</span></div>
+      <div class="calc-row" style="color:var(--sub)"><span> 仕入れ原価</span><span id="p_cost">—</span></div>
+      <div class="calc-row" style="color:var(--sub)"><span> 送料</span><span id="p_ship">—</span></div>
+      <div class="calc-row" style="color:var(--sub)"><span> その他</span><span id="p_other">—</span></div>
+      <div class="calc-row calc-total"><span>純利益</span><span id="p_profit">—</span></div>
+    </div>
+
+    <div style="display:flex;gap:8px;margin-top:14px">
+      <button class="btn" style="flex:1" onclick="closeSheet()">キャンセル</button>
+      <button class="btn btn-primary" style="flex:2" onclick="saveTransaction()">保存する</button>
+    </div>
+  `;
+}
+
+function setFM(mode) {
+  addState.feeMode = mode;
+  const uw=document.getElementById('fw_usd'), pw=document.getElementById('fw_pct');
+  const bu=document.getElementById('busd'), bp=document.getElementById('bpct');
+  if(!uw) return;
+  uw.style.display=mode==='usd'?'flex':'none'; pw.style.display=mode==='pct'?'flex':'none';
+  bu.style.background=mode==='usd'?'#fff':'transparent'; bu.style.fontWeight=mode==='usd'?'700':'400';
+  bp.style.background=mode==='pct'?'#fff':'transparent'; bp.style.fontWeight=mode==='pct'?'700':'400';
+  updatePreview();
+}
+
+function updatePreview() {
+  const sale=parseFloat(document.getElementById('a_sale')?.value)||0;
+  if(sale===0) return;
+  const rate=parseFloat(document.getElementById('a_rate')?.value)||settings.defaultRate;
+  const cost=parseFloat(document.getElementById('a_cost')?.value)||0;
+  const ship=parseFloat(document.getElementById('a_ship')?.value)||0;
+  const other=parseFloat(document.getElementById('a_other')?.value)||0;
+  const rev=sale*rate;
+  const fm=addState.feeMode;
+  const fee=fm==='usd'?(parseFloat(document.getElementById('a_feeUsd')?.value)||0)*rate
+                      :rev*((parseFloat(document.getElementById('a_feePct')?.value)||0)/100);
+  const profit=rev-fee-cost-ship-other;
+  const margin=rev>0?profit/rev*100:0;
+  document.getElementById('p_rev').textContent='¥'+fmt(rev);
+  document.getElementById('p_fee').textContent='- ¥'+fmt(fee);
+  document.getElementById('p_cost').textContent='- ¥'+fmt(cost);
+  document.getElementById('p_ship').textContent='- ¥'+fmt(ship);
+  document.getElementById('p_other').textContent='- ¥'+fmt(other);
+  const el=document.getElementById('p_profit');
+  el.textContent=`¥${fmt(profit)} (${margin.toFixed(1)}%)`;
+  el.className=profit>=0?'profit-pos':'profit-neg';
+}
+
+function saveTransaction() {
+  const sale=parseFloat(document.getElementById('a_sale')?.value);
+  if(!sale||sale<=0){alert('販売価格を入力してください');return;}
+  const fm=addState.feeMode;
+  const t={
+    id:genId(),
+    date:document.getElementById('a_date').value,
+    name:document.getElementById('a_name').value||'(商品名なし)',
+    category:document.getElementById('a_cat').value||'',
+    salePriceUsd:sale,
+    rate:parseFloat(document.getElementById('a_rate').value)||settings.defaultRate,
+    ebayFeeMode:fm,
+    ebayFeeUsd:fm==='usd'?(parseFloat(document.getElementById('a_feeUsd')?.value)||0):0,
+    ebayFeeRate:fm==='pct'?(parseFloat(document.getElementById('a_feePct')?.value)||0):0,
+    costJpy:parseFloat(document.getElementById('a_cost').value)||0,
+    shippingJpy:parseFloat(document.getElementById('a_ship').value)||0,
+    otherCostJpy:parseFloat(document.getElementById('a_other').value)||0,
+    memo:document.getElementById('a_memo').value
+  };
+  transactions.push(t);
+  save();
+  closeSheet();
+  showToast('✅ 取引を保存しました');
+  switchTab('dashboard');
+}
+
+function cloneTxn(id) {
+  const src=transactions.find(t=>t.id===id);
+  if(!src) return;
+  addState = {
+    step: 2,
+    scanned: { ...src, date: new Date().toISOString().slice(0,10), memo: '' },
+    imageBase64: null,
+    feeMode: src.ebayFeeMode||'pct'
+  };
+  renderSheet();
+  showToast(`「${src.name}」を複製しました`);
+}
+
+function deleteTxn(id) {
+  if(!confirm('この取引を削除しますか？')) return;
+  transactions=transactions.filter(t=>t.id!==id); save(); render();
+}
+
+// ── Settings ──────────────────────────────────────────────────────────────────
+function openSettings() {
+  const ov=document.getElementById('overlay');
+  ov.innerHTML=`<div class="sheet" onclick="event.stopPropagation()">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">設定</div>
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <div class="field">
+        <label>Google Apps Script URL <span id="syncBadge" style="font-size:11px;font-weight:600;margin-left:6px"></span></label>
+        <input type="text" id="s_gas" placeholder="https://script.google.com/macros/s/..../exec" value="${esc(settings.gasUrl||'')}">
+        <span class="hint">クラウド同期＆スクショ解析に使用。設定手順は SETUP.md を参照。空欄ならこの端末内のみ保存。</span>
+      </div>
+      <div class="field">
+        <label>アクセストークン（任意）</label>
+        <input type="password" id="s_token" placeholder="GASのSHARED_TOKENと同じ合言葉" value="${esc(settings.gasToken||'')}">
+        <span class="hint">GASにSHARED_TOKENを設定した場合のみ入力。同じ文字列を端末ごとに登録。</span>
+      </div>
+      <div class="field">
+        <label>デフォルト為替レート (円/ドル)</label>
+        <input type="number" id="s_rate" value="${settings.defaultRate}" step="0.1" min="1">
+      </div>
+      <div class="field">
+        <label>eBay手数料デフォルト (%)</label>
+        <input type="number" id="s_fee" value="${settings.ebayFeeRate}" step="0.01" min="0">
+      </div>
+      <button class="btn btn-primary btn-full" onclick="saveSettings()">保存</button>
+      <button class="btn btn-full" onclick="closeSheet()">キャンセル</button>
+    </div>
+  </div>`;
+  ov.style.display='flex';
+  ov.onclick=()=>closeSheet();
+  updateSyncBadge();
+}
+
+function saveSettings() {
+  const prevGas = settings.gasUrl;
+  settings.gasUrl=document.getElementById('s_gas').value.trim();
+  settings.gasToken=document.getElementById('s_token').value.trim();
+  settings.defaultRate=parseFloat(document.getElementById('s_rate').value)||155;
+  settings.ebayFeeRate=parseFloat(document.getElementById('s_fee').value)||13.25;
+  localStorage.setItem('ebay_settings', JSON.stringify(settings));
+  closeSheet(); showToast('設定を保存しました');
+  // URLを新たに設定した場合はクラウドから読み込み、それ以外は現状を同期
+  if (settings.gasUrl && settings.gasUrl !== prevGas) loadFromCloud();
+  else { syncToCloud(); render(); }
+}
+
+function updateRate(v) { settings.defaultRate=parseFloat(v)||155; save(); }
+
+// ── Init ──────────────────────────────────────────────────────────────────────
+render();
+// クラウドに最新データがあれば取得して上書き表示
+loadFromCloud();
+// PWA: サービスワーカー登録（ホーム画面アプリ化・オフライン対応）
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('./sw.js').catch(() => {});
+  });
+}
+</script>
+</body>
+</html>
