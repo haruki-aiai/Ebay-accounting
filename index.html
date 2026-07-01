@@ -246,7 +246,15 @@ if (!localStorage.getItem('ebay_add_frieren_amp')) {
     localStorage.setItem('ebay_frieren_amp_costfix', '1');
   }
 })();
-let settings = JSON.parse(localStorage.getItem('ebay_settings') || '{"defaultRate":155,"ebayFeeRate":13.25,"gasUrl":"","gasToken":""}');
+let settings = JSON.parse(localStorage.getItem('ebay_settings') || '{"defaultRate":155,"ebayFeeRate":17.4,"gasUrl":"","gasToken":""}');
+// One-time: 旧デフォルト13.25%を実測に近い17.4%へ更新（手動%入力時のズレ防止）
+if (!localStorage.getItem('ebay_feerate_v2')) {
+  if (settings.ebayFeeRate === 13.25) {
+    settings.ebayFeeRate = 17.4;
+    localStorage.setItem('ebay_settings', JSON.stringify(settings));
+  }
+  localStorage.setItem('ebay_feerate_v2', '1');
+}
 let currentTab = 'dashboard';
 let historyFilter = '';
 let chartInstance = null;
@@ -420,7 +428,7 @@ function renderDashboard() {
         <td class="td-r">$${Number(t.salePriceUsd).toFixed(0)}</td>
         <td class="td-r" style="font-weight:600;color:${p.profit>=0?'var(--green)':'var(--red)'}">¥${fmt(p.profit)}</td>
         <td class="td-r"><span class="badge ${p.margin>=20?'bg-green':p.margin>=0?'bg-gray':'bg-red'}">${p.margin.toFixed(0)}%</span></td>
-        <td><button class="btn btn-copy btn-sm" onclick="cloneTxn('${t.id}')">複製</button></td>
+        <td style="white-space:nowrap"><button class="btn btn-sm" onclick="editTxn('${t.id}')">編集</button></td>
       </tr>`;}).join('')}</tbody>
     </table></div>`}
   </div>`;
@@ -453,16 +461,26 @@ function initChart() {
 function renderHistory() {
   if (transactions.length===0) return `<div class="card"><div class="empty"><div class="empty-icon">📋</div><p>まだ取引がありません</p></div></div>`;
   const cats = ['',...new Set(transactions.map(t=>t.category).filter(Boolean))];
-  const filtered = historyFilter ? transactions.filter(t=>t.category===historyFilter) : transactions;
+  const q = (historySearch||'').trim().toLowerCase();
+  let filtered = historyFilter ? transactions.filter(t=>t.category===historyFilter) : transactions.slice();
+  if (q) filtered = filtered.filter(t =>
+    (t.name||'').toLowerCase().includes(q) ||
+    (t.memo||'').toLowerCase().includes(q) ||
+    (t.category||'').toLowerCase().includes(q));
   const mMap = {};
   [...filtered].sort((a,b)=>(b.date||'')>(a.date||'')?1:-1).forEach(t=>{
     const m=(t.date||'不明').slice(0,7); if(!mMap[m]) mMap[m]=[]; mMap[m].push(t);
   });
   const months = Object.keys(mMap).sort().reverse();
+  const searchBar = `<div style="margin-bottom:10px">
+    <input id="histSearch" type="search" placeholder="🔍 商品名・メモ・カテゴリで検索" value="${esc(historySearch)}" oninput="onHistorySearch(this.value)"
+      style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:10px;font-size:14px;background:var(--card);outline:none">
+  </div>`;
   const catBar = `<div class="cat-bar">
     ${cats.map(c=>`<button class="cat-pill ${historyFilter===c?'on':''}" onclick="setHFilter('${c}')">${c||'すべて'}</button>`).join('')}
   </div>`;
-  return catBar + months.map(m=>{
+  const emptyMsg = filtered.length===0 ? `<div class="card"><div class="empty"><div class="empty-icon">🔍</div><p>該当する取引がありません</p></div></div>` : '';
+  return searchBar + catBar + emptyMsg + months.map(m=>{
     const txns=mMap[m];
     const tRev=txns.reduce((s,t)=>s+calcProfit(t).rev,0);
     const tP=txns.reduce((s,t)=>s+calcProfit(t).profit,0);
@@ -489,6 +507,7 @@ function renderHistory() {
           <td class="td-r" style="font-weight:700;color:${p.profit>=0?'var(--green)':'var(--red)'}">¥${fmt(p.profit)}</td>
           <td class="td-r"><span class="badge ${p.margin>=20?'bg-green':p.margin>=0?'bg-gray':'bg-red'}">${p.margin.toFixed(0)}%</span></td>
           <td style="white-space:nowrap">
+            <button class="btn btn-sm" onclick="editTxn('${t.id}')">編集</button>
             <button class="btn btn-copy btn-sm" onclick="cloneTxn('${t.id}')">複製</button>
             <button class="btn btn-danger btn-sm" onclick="deleteTxn('${t.id}')">削除</button>
           </td>
@@ -498,6 +517,13 @@ function renderHistory() {
   }).join('');
 }
 function setHFilter(c) { historyFilter=c; render(); }
+let historySearch='';
+function onHistorySearch(v) {
+  historySearch=v;
+  render();
+  const el=document.getElementById('histSearch');
+  if (el) { el.focus(); const n=v.length; el.setSelectionRange(n,n); }
+}
 
 // ── Add Sheet (3-step) ────────────────────────────────────────────────────────
 function openAddSheet(prefill) {
@@ -623,12 +649,14 @@ function renderStep2() {
   const fm = addState.feeMode;
   const pastNames = [...new Set(transactions.map(t=>t.name).filter(Boolean))];
 
+  const isEdit = !!addState.editId;
   return `
-    <div class="sheet-title">取引の詳細</div>
+    <div class="sheet-title">${isEdit ? '取引を編集' : '取引の詳細'}</div>
     <div class="steps">
+      ${isEdit ? `<span class="step-label">内容を修正して更新</span>` : `
       <div class="step-dot"></div><div class="step-dot active"></div>
       <span class="step-label">ステップ 2 / 2</span>
-      <button style="margin-left:auto;font-size:12px;color:var(--blue);background:none;border:none;cursor:pointer" onclick="addState.step=1;renderSheet()">← 戻る</button>
+      <button style="margin-left:auto;font-size:12px;color:var(--blue);background:none;border:none;cursor:pointer" onclick="addState.step=1;renderSheet()">← 戻る</button>`}
     </div>
 
     <div id="scanStatus"></div>
@@ -713,7 +741,7 @@ function renderStep2() {
 
     <div style="display:flex;gap:8px;margin-top:14px">
       <button class="btn" style="flex:1" onclick="closeSheet()">キャンセル</button>
-      <button class="btn btn-primary" style="flex:2" onclick="saveTransaction()">保存する</button>
+      <button class="btn btn-primary" style="flex:2" onclick="saveTransaction()">${isEdit ? '更新する' : '保存する'}</button>
     </div>
   `;
 }
@@ -757,7 +785,7 @@ function saveTransaction() {
   if(!sale||sale<=0){alert('販売価格を入力してください');return;}
   const fm=addState.feeMode;
   const t={
-    id:genId(),
+    id:addState.editId||genId(),
     date:document.getElementById('a_date').value,
     name:document.getElementById('a_name').value||'(商品名なし)',
     category:document.getElementById('a_cat').value||'',
@@ -771,11 +799,17 @@ function saveTransaction() {
     otherCostJpy:parseFloat(document.getElementById('a_other').value)||0,
     memo:document.getElementById('a_memo').value
   };
-  transactions.push(t);
+  if (addState.editId) {
+    const i = transactions.findIndex(x=>x.id===addState.editId);
+    if (i>=0) transactions[i]=t; else transactions.push(t);
+  } else {
+    transactions.push(t);
+  }
+  const wasEdit = !!addState.editId;
   save();
   closeSheet();
-  showToast('✅ 取引を保存しました');
-  switchTab('dashboard');
+  showToast(wasEdit ? '✅ 取引を更新しました' : '✅ 取引を保存しました');
+  switchTab(wasEdit ? 'history' : 'dashboard');
 }
 
 function cloneTxn(id) {
@@ -789,6 +823,19 @@ function cloneTxn(id) {
   };
   renderSheet();
   showToast(`「${src.name}」を複製しました`);
+}
+
+function editTxn(id) {
+  const src=transactions.find(t=>t.id===id);
+  if(!src) return;
+  addState = {
+    step: 2,
+    scanned: { ...src },
+    imageBase64: null,
+    feeMode: src.ebayFeeMode||'pct',
+    editId: id
+  };
+  renderSheet();
 }
 
 function deleteTxn(id) {
