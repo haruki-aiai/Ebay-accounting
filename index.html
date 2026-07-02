@@ -196,7 +196,10 @@ tbody td { padding: 9px 8px; vertical-align: middle; }
       <div class="topbar-title">eBay 収支管理</div>
       <div class="topbar-sub" id="topbar-sub">読み込み中…</div>
     </div>
-    <button class="btn btn-sm" onclick="openSettings()">設定</button>
+    <div style="display:flex;gap:6px">
+      <a class="btn btn-sm" href="./home.html" title="ホーム" style="text-decoration:none">🏠</a>
+      <button class="btn btn-sm" onclick="openSettings()">設定</button>
+    </div>
   </div>
   <div class="content" id="content"></div>
   <nav class="nav">
@@ -262,51 +265,86 @@ let chartInstance = null;
 // Form state for add sheet
 let addState = { step: 1, scanned: null, imageBase64: null, feeMode: 'pct' };
 
+// ── データ保管先: dokidoki-agents リポジトリ（GitHub Contents API）─────────────
+// expense.html と同じ接続設定（localStorage: ebay-expense-cfg）を共用する。
+// トークンを一度入れれば、記録アプリとレポートアプリの両方で有効。
+const GH_CFG_KEY = 'ebay-expense-cfg';
+const TXN_PATH = 'data/transactions.json';
+let txnsSha = null;
+function ghCfg() {
+  return Object.assign({ repo: 'haruki-aiai/dokidoki-agents', branch: 'main', token: '' },
+    JSON.parse(localStorage.getItem(GH_CFG_KEY) || '{}'));
+}
+function ghHeaders(c) {
+  return { Accept: 'application/vnd.github+json', ...(c.token ? { Authorization: 'Bearer ' + c.token } : {}) };
+}
+function b64utf8(str) { const b = new TextEncoder().encode(str); let s = ''; b.forEach(x => s += String.fromCharCode(x)); return btoa(s); }
+function utf8b64(b64) { return new TextDecoder().decode(Uint8Array.from(atob(b64.replace(/\n/g, '')), c => c.charCodeAt(0))); }
+
 function save() {
   // ローカル（オフラインキャッシュ）に保存
   localStorage.setItem('ebay_txns', JSON.stringify(transactions));
   localStorage.setItem('ebay_settings', JSON.stringify(settings));
-  // クラウド（Googleシート）へ同期
-  syncToCloud();
+  // クラウド（GitHub: dokidoki-agents/data/transactions.json）へ同期
+  saveToGitHub();
 }
 
 let _syncing = false;
-function syncToCloud() {
-  if (!settings.gasUrl) return; // 未設定ならローカルのみ
+async function saveToGitHub() {
+  const c = ghCfg();
+  if (!c.token) return; // 未設定ならローカルのみ
   _syncing = true; updateSyncBadge();
-  fetch(settings.gasUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-    body: JSON.stringify({ action: 'save', token: settings.gasToken || '', txns: transactions })
-  })
-  .then(r => r.json())
-  .then(res => { if (!res.ok) throw new Error(res.error || '同期失敗'); })
-  .catch(err => showToast('⚠️ クラウド同期エラー: ' + err.message, 3000))
-  .finally(() => { _syncing = false; updateSyncBadge(); });
+  try {
+    // 競合回避のため保存直前に最新shaを取得
+    let sha = txnsSha;
+    const g = await fetch(`https://api.github.com/repos/${c.repo}/contents/${TXN_PATH}?ref=${encodeURIComponent(c.branch)}`, { headers: ghHeaders(c) });
+    if (g.ok) sha = (await g.json()).sha;
+    else if (g.status === 404) sha = null; // 初回作成
+    else throw new Error('HTTP ' + g.status);
+    const body = {
+      message: 'txns: 取引を更新（記録アプリ）',
+      content: b64utf8(JSON.stringify(transactions, null, 2) + '\n'),
+      branch: c.branch
+    };
+    if (sha) body.sha = sha;
+    const r = await fetch(`https://api.github.com/repos/${c.repo}/contents/${TXN_PATH}`, {
+      method: 'PUT', headers: ghHeaders(c), body: JSON.stringify(body)
+    });
+    if (!r.ok) throw new Error('HTTP ' + r.status + ' ' + (await r.text()).slice(0, 120));
+    txnsSha = (await r.json()).content?.sha || null;
+  } catch (err) {
+    showToast('⚠️ GitHub同期エラー: ' + err.message, 3000);
+  } finally {
+    _syncing = false; updateSyncBadge();
+  }
 }
 
-async function loadFromCloud() {
-  if (!settings.gasUrl) return;
+async function loadFromGitHub() {
+  const c = ghCfg();
+  if (!c.token) return;
   try {
-    const url = settings.gasUrl + (settings.gasToken ? '?token=' + encodeURIComponent(settings.gasToken) : '');
-    const res = await fetch(url);
-    const data = await res.json();
-    if (data.ok && Array.isArray(data.txns)) {
-      transactions = data.txns;
+    const r = await fetch(`https://api.github.com/repos/${c.repo}/contents/${TXN_PATH}?ref=${encodeURIComponent(c.branch)}`, { headers: ghHeaders(c) });
+    if (r.status === 404) { txnsSha = null; return; } // まだファイルが無い（初回）
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const j = await r.json();
+    txnsSha = j.sha;
+    const arr = JSON.parse(utf8b64(j.content));
+    if (Array.isArray(arr)) {
+      transactions = arr;
       localStorage.setItem('ebay_txns', JSON.stringify(transactions));
       render();
     }
   } catch (err) {
-    showToast('⚠️ クラウド読込エラー（ローカル表示）', 2500);
+    showToast('⚠️ GitHub読込エラー（ローカル表示）', 2500);
   }
 }
 
 function updateSyncBadge() {
   const el = document.getElementById('syncBadge');
   if (!el) return;
-  if (!settings.gasUrl) { el.textContent = 'ローカルのみ'; el.style.color = 'var(--hint)'; }
-  else if (_syncing)    { el.textContent = '同期中…';     el.style.color = 'var(--blue)'; }
-  else                  { el.textContent = '☁ 同期済み';   el.style.color = 'var(--green)'; }
+  if (!ghCfg().token) { el.textContent = 'ローカルのみ'; el.style.color = 'var(--hint)'; }
+  else if (_syncing)  { el.textContent = '同期中…';      el.style.color = 'var(--blue)'; }
+  else                { el.textContent = '☁ GitHub同期';  el.style.color = 'var(--green)'; }
 }
 function genId() { return Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
 function fmt(n) { return Math.round(n).toLocaleString('ja-JP'); }
@@ -385,10 +423,10 @@ function renderDashboard() {
 
   const recent = [...transactions].sort((a,b)=>(b.date||'')>(a.date||'')?1:-1).slice(0,5);
 
-  const apiWarning = !settings.gasUrl ? `
+  const apiWarning = !ghCfg().token ? `
     <div class="key-banner">
-      <div class="key-banner-title">☁ クラウド同期＆スクショ自動読込を有効にする</div>
-      <p>設定からGoogle Apps ScriptのURLを登録すると、複数端末で同期でき、eBayの取引スクショを撮るだけで自動入力できます。</p>
+      <div class="key-banner-title">☁ クラウド同期を有効にする</div>
+      <p>設定でGitHub接続（リポジトリ＋トークン）を登録すると、データが dokidoki-agents に保存され複数端末で同期できます。スクショ自動読込を使う場合はGAS URLも登録してください。</p>
       <button class="btn btn-sm btn-primary" onclick="openSettings()">設定を開く</button>
     </div>` : '';
 
@@ -846,27 +884,45 @@ function deleteTxn(id) {
 // ── Settings ──────────────────────────────────────────────────────────────────
 function openSettings() {
   const ov=document.getElementById('overlay');
+  const c = ghCfg();
   ov.innerHTML=`<div class="sheet" onclick="event.stopPropagation()">
     <div class="sheet-handle"></div>
     <div class="sheet-title">設定</div>
     <div style="display:flex;flex-direction:column;gap:14px">
+      <div style="font-size:12px;font-weight:700;color:var(--sub)">データ保管先（GitHub） <span id="syncBadge" style="font-weight:600;margin-left:6px"></span></div>
       <div class="field">
-        <label>Google Apps Script URL <span id="syncBadge" style="font-size:11px;font-weight:600;margin-left:6px"></span></label>
+        <label>リポジトリ (owner/repo)</label>
+        <input type="text" id="s_repo" placeholder="haruki-aiai/dokidoki-agents" value="${esc(c.repo||'')}">
+      </div>
+      <div class="field">
+        <label>ブランチ</label>
+        <input type="text" id="s_branch" placeholder="main" value="${esc(c.branch||'main')}">
+        <span class="hint">記録は data/transactions.json に保存されます。expense.html と同じ接続を共用。</span>
+      </div>
+      <div class="field">
+        <label>GitHub アクセストークン (Contents: Read and write)</label>
+        <input type="password" id="s_ghtoken" placeholder="github_pat_…" value="${esc(c.token||'')}">
+        <span class="hint">この端末にのみ保存。空欄ならこの端末内のみ（クラウド同期なし）。手順は docs/MOBILE_APP.md。</span>
+      </div>
+      <div style="font-size:12px;font-weight:700;color:var(--sub);margin-top:4px">スクショ自動読込（任意・GAS）</div>
+      <div class="field">
+        <label>Google Apps Script URL</label>
         <input type="text" id="s_gas" placeholder="https://script.google.com/macros/s/..../exec" value="${esc(settings.gasUrl||'')}">
-        <span class="hint">クラウド同期＆スクショ解析に使用。設定手順は SETUP.md を参照。空欄ならこの端末内のみ保存。</span>
+        <span class="hint">スクショOCRに使用。空欄なら手動入力のみ。データ同期はGitHub側で行われます。</span>
       </div>
       <div class="field">
-        <label>アクセストークン（任意）</label>
+        <label>GASトークン（任意）</label>
         <input type="password" id="s_token" placeholder="GASのSHARED_TOKENと同じ合言葉" value="${esc(settings.gasToken||'')}">
-        <span class="hint">GASにSHARED_TOKENを設定した場合のみ入力。同じ文字列を端末ごとに登録。</span>
       </div>
-      <div class="field">
-        <label>デフォルト為替レート (円/ドル)</label>
-        <input type="number" id="s_rate" value="${settings.defaultRate}" step="0.1" min="1">
-      </div>
-      <div class="field">
-        <label>eBay手数料デフォルト (%)</label>
-        <input type="number" id="s_fee" value="${settings.ebayFeeRate}" step="0.01" min="0">
+      <div class="grid2">
+        <div class="field">
+          <label>デフォルト為替レート (円/ドル)</label>
+          <input type="number" id="s_rate" value="${settings.defaultRate}" step="0.1" min="1">
+        </div>
+        <div class="field">
+          <label>eBay手数料デフォルト (%)</label>
+          <input type="number" id="s_fee" value="${settings.ebayFeeRate}" step="0.01" min="0">
+        </div>
       </div>
       <button class="btn btn-primary btn-full" onclick="saveSettings()">保存</button>
       <button class="btn btn-full" onclick="closeSheet()">キャンセル</button>
@@ -878,24 +934,31 @@ function openSettings() {
 }
 
 function saveSettings() {
-  const prevGas = settings.gasUrl;
+  const prev = ghCfg();
+  const cfg = {
+    repo: document.getElementById('s_repo').value.trim() || prev.repo,
+    branch: document.getElementById('s_branch').value.trim() || 'main',
+    token: document.getElementById('s_ghtoken').value.trim()
+  };
+  localStorage.setItem(GH_CFG_KEY, JSON.stringify(cfg));
   settings.gasUrl=document.getElementById('s_gas').value.trim();
   settings.gasToken=document.getElementById('s_token').value.trim();
   settings.defaultRate=parseFloat(document.getElementById('s_rate').value)||155;
   settings.ebayFeeRate=parseFloat(document.getElementById('s_fee').value)||13.25;
   localStorage.setItem('ebay_settings', JSON.stringify(settings));
   closeSheet(); showToast('設定を保存しました');
-  // URLを新たに設定した場合はクラウドから読み込み、それ以外は現状を同期
-  if (settings.gasUrl && settings.gasUrl !== prevGas) loadFromCloud();
-  else { syncToCloud(); render(); }
+  // トークンを新たに設定した場合はGitHubから読み込み、それ以外は現状を同期
+  if (cfg.token && (cfg.token !== prev.token || cfg.repo !== prev.repo || cfg.branch !== prev.branch)) {
+    txnsSha = null; loadFromGitHub();
+  } else { saveToGitHub(); render(); }
 }
 
 function updateRate(v) { settings.defaultRate=parseFloat(v)||155; save(); }
 
 // ── Init ──────────────────────────────────────────────────────────────────────
 render();
-// クラウドに最新データがあれば取得して上書き表示
-loadFromCloud();
+// クラウド（GitHub）に最新データがあれば取得して上書き表示
+loadFromGitHub();
 // PWA: サービスワーカー登録（ホーム画面アプリ化・オフライン対応）
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {

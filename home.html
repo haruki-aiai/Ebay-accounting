@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>eBay 会計ハブ</title>
+<link rel="manifest" href="./manifest.webmanifest">
+<meta name="theme-color" content="#161616">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="eBay会計">
+<link rel="apple-touch-icon" href="./icon-192.png">
+<link rel="icon" type="image/png" href="./icon-192.png">
+<style>
+  :root {
+    --bg: #0f0f0f; --card: #1c1c1b; --line: #2c2c2a;
+    --ink: #ffffff; --ink-2: #b8b7ad; --ink-3: #7a786f;
+    --blue: #3987e5; --green: #22b06a;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Yu Gothic", sans-serif;
+    background: var(--bg); color: var(--ink); min-height: 100vh;
+    padding: calc(28px + env(safe-area-inset-top)) 18px calc(28px + env(safe-area-inset-bottom)); }
+  .wrap { max-width: 460px; margin: 0 auto; }
+  .brand { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }
+  .brand img { width: 44px; height: 44px; border-radius: 11px; }
+  .brand h1 { font-size: 20px; font-weight: 700; letter-spacing: .01em; }
+  .lead { color: var(--ink-2); font-size: 13px; margin: 4px 0 26px; line-height: 1.6; }
+  .tool { display: block; text-decoration: none; color: inherit; background: var(--card);
+    border: 1px solid var(--line); border-radius: 16px; padding: 18px; margin-bottom: 14px;
+    transition: transform .12s, border-color .12s; }
+  .tool:active { transform: scale(.985); border-color: var(--blue); }
+  .tool .row { display: flex; align-items: center; gap: 12px; }
+  .tool .emoji { font-size: 26px; width: 44px; height: 44px; display: flex; align-items: center;
+    justify-content: center; border-radius: 12px; background: #262625; flex-shrink: 0; }
+  .tool .t { font-size: 16px; font-weight: 700; }
+  .tool .arrow { margin-left: auto; color: var(--ink-3); font-size: 20px; }
+  .tool .d { font-size: 12px; color: var(--ink-2); margin-top: 10px; line-height: 1.6; }
+  .tool .tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 10px; }
+  .tag { font-size: 11px; color: var(--ink-2); border: 1px solid var(--line);
+    border-radius: 999px; padding: 2px 9px; }
+  .divider { display: flex; align-items: center; gap: 10px; color: var(--ink-3);
+    font-size: 11px; margin: 8px 0 18px; }
+  .divider::before, .divider::after { content: ""; height: 1px; background: var(--line); flex: 1; }
+  .note { font-size: 11px; color: var(--ink-3); line-height: 1.7; margin-top: 22px; }
+  .note code { background: #262625; border-radius: 4px; padding: 1px 5px; font-size: 11px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="brand">
+    <img src="./icon-192.png" alt="">
+    <h1>eBay 会計</h1>
+  </div>
+  <p class="lead">売上の記録から、手数料・現金化を含めた最終利益まで。用途で2つのツールを使い分けます。</p>
+
+  <a class="tool" href="./index.html">
+    <div class="row">
+      <div class="emoji">📷</div>
+      <div class="t">取引を記録する</div>
+      <div class="arrow">›</div>
+    </div>
+    <div class="d">1件ずつの売上を、eBayのスクショから自動入力（またはワンタップ手入力）。原価・送料を足すとその場で利益プレビュー。累計・月次・カテゴリ別を集計。</div>
+    <div class="tags"><span class="tag">スクショOCR</span><span class="tag">Googleシート同期</span><span class="tag">オフライン</span></div>
+  </a>
+
+  <a class="tool" href="./expense.html">
+    <div class="row">
+      <div class="emoji">📊</div>
+      <div class="t">レポート・最終利益</div>
+      <div class="arrow">›</div>
+    </div>
+    <div class="d">eBayの取引レポートCSVから、手数料の内訳・返金・Payoutを正確に集計。Payoneer着金の実効レートで円建ての最終利益を確定。商品別の仕入れ値・送料もここで入力。</div>
+    <div class="tags"><span class="tag">CSV自動集計</span><span class="tag">Payoneer現金化</span><span class="tag">GitHub同期</span></div>
+  </a>
+
+  <div class="note">
+    2つのツールはデータの持ち方が異なります（記録＝Googleシート／レポート＝GitHubのCSV）。
+    当面はそれぞれの強みで併用し、将来1つのデータ源に統合できます。詳細は <code>webapp/README.md</code>。
+  </div>
+</div>
+</body>
+</html>

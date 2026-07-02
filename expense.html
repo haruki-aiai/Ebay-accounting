@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="color-scheme" content="light dark">
+<title>eBay 経費・利益ダッシュボード</title>
+<style>
+  :root {
+    --surface: #fcfcfb; --card: #ffffff; --line: #e4e3df;
+    --ink: #0b0b0b; --ink-2: #52514e; --ink-3: #8a887f;
+    --series: #2a78d6; --series-soft: #cde2fb;
+    --bad: #b3261e; --ok: #1b6e46; --accent-bg: #eef4fc;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --surface: #1a1a19; --card: #232322; --line: #3a3937;
+      --ink: #ffffff; --ink-2: #c3c2b7; --ink-3: #8f8d83;
+      --series: #3987e5; --series-soft: #184f95;
+      --bad: #e66767; --ok: #4fbe8a; --accent-bg: #20304a;
+    }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--surface); color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Sans", "Noto Sans JP", sans-serif;
+    font-size: 16px; line-height: 1.5; }
+  main { max-width: 680px; margin: 0 auto; padding: 0 16px 96px; }
+  header { position: sticky; top: 0; z-index: 5; background: var(--surface);
+    border-bottom: 1px solid var(--line); padding: 12px 16px calc(10px);
+    display: flex; gap: 8px; align-items: center; }
+  header h1 { font-size: 17px; margin: 0; flex: 1; font-weight: 700; letter-spacing: .01em; }
+  select, input, button, textarea { font: inherit; color: inherit; }
+  select { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; }
+  .icon-btn { background: none; border: 1px solid var(--line); border-radius: 8px;
+    padding: 6px 10px; cursor: pointer; color: var(--ink-2); }
+  h2 { font-size: 13px; font-weight: 600; color: var(--ink-2); text-transform: none;
+    letter-spacing: .02em; margin: 22px 0 8px; }
+  .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .tile { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 12px 14px; }
+  .tile .k { font-size: 12px; color: var(--ink-2); }
+  .tile .v { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; margin-top: 2px; }
+  .tile .s { font-size: 11px; color: var(--ink-3); margin-top: 2px; }
+  .tile.hero { grid-column: 1 / -1; background: var(--accent-bg); border-color: transparent; }
+  .tile.hero .v { font-size: 30px; }
+  .neg { color: var(--bad); } .pos { color: var(--ok); }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+  .viz-root { position: relative; }
+  .viz-root svg text { fill: var(--ink-2); font-size: 11px; font-variant-numeric: tabular-nums; }
+  .viz-root svg .grid { stroke: var(--line); stroke-width: 1; }
+  .tooltip { position: absolute; pointer-events: none; background: var(--ink); color: var(--surface);
+    border-radius: 8px; padding: 6px 10px; font-size: 12px; font-variant-numeric: tabular-nums;
+    transform: translate(-50%, -110%); white-space: nowrap; display: none; }
+  .row { background: var(--card); border: 1px solid var(--line); border-radius: 12px;
+    padding: 12px 14px; margin-bottom: 10px; }
+  .row.unfilled { border-left: 3px solid var(--series); }
+  .row .t { font-size: 14px; font-weight: 600; overflow-wrap: anywhere; }
+  .row .m { font-size: 12px; color: var(--ink-3); margin: 2px 0 8px; font-variant-numeric: tabular-nums; }
+  .row .inputs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .row .inputs label { font-size: 11px; color: var(--ink-2); display: block; }
+  .row input[type=text] { width: 100%; background: var(--surface); border: 1px solid var(--line);
+    border-radius: 8px; padding: 8px; font-variant-numeric: tabular-nums; }
+  .row .memo { grid-column: 1 / -1; }
+  .chip { display: inline-block; font-size: 11px; border-radius: 999px; padding: 1px 8px;
+    border: 1px solid var(--line); color: var(--ink-2); margin-left: 6px; }
+  .chip.refund { color: var(--bad); border-color: var(--bad); }
+  .savebar { position: fixed; bottom: 0; left: 0; right: 0; padding: 10px 16px
+    calc(10px + env(safe-area-inset-bottom)); background: var(--surface);
+    border-top: 1px solid var(--line); display: none; }
+  .savebar.show { display: block; }
+  .savebar button { width: 100%; max-width: 680px; margin: 0 auto; display: block;
+    background: var(--series); color: #fff; border: none; border-radius: 10px;
+    padding: 12px; font-weight: 700; cursor: pointer; }
+  .savebar button:disabled { opacity: .6; }
+  dialog { border: 1px solid var(--line); border-radius: 14px; background: var(--card);
+    color: var(--ink); max-width: 420px; width: calc(100vw - 48px); padding: 18px; }
+  dialog::backdrop { background: rgba(0,0,0,.35); }
+  dialog label { font-size: 12px; color: var(--ink-2); display: block; margin: 10px 0 2px; }
+  dialog input { width: 100%; background: var(--surface); border: 1px solid var(--line);
+    border-radius: 8px; padding: 8px; }
+  dialog .actions { display: flex; gap: 8px; margin-top: 16px; }
+  dialog .actions button { flex: 1; border-radius: 8px; padding: 10px; border: 1px solid var(--line);
+    background: var(--card); cursor: pointer; }
+  dialog .actions button.primary { background: var(--series); border-color: var(--series); color: #fff; }
+  .note { font-size: 12px; color: var(--ink-3); }
+  .banner { border-radius: 10px; padding: 10px 12px; font-size: 13px; margin-top: 12px; }
+  .banner.err { background: color-mix(in srgb, var(--bad) 12%, var(--card)); }
+  .banner.info { background: var(--accent-bg); }
+  .seg { display: flex; gap: 6px; margin: 8px 0 12px; }
+  .seg button { flex: 1; border: 1px solid var(--line); background: var(--card); color: var(--ink-2);
+    border-radius: 8px; padding: 7px; cursor: pointer; font-size: 13px; }
+  .seg button.on { background: var(--series); border-color: var(--series); color: #fff; }
+</style>
+</head>
+<body>
+<header>
+  <a class="icon-btn" href="./home.html" aria-label="ホーム" style="text-decoration:none">🏠</a>
+  <h1>eBay 経費・利益</h1>
+  <select id="periodSel" aria-label="期間"></select>
+  <button class="icon-btn" id="settingsBtn" aria-label="設定">⚙︎</button>
+</header>
+<main>
+  <div id="banner"></div>
+  <h2>サマリ</h2>
+  <div class="tiles" id="tiles"></div>
+  <h2 id="chartH">月次のeBay純利益（USD）</h2>
+  <div class="card viz-root" id="chartCard">
+    <svg id="chart" width="100%" height="180" role="img" aria-label="月次のeBay純利益 棒グラフ"></svg>
+    <div class="tooltip" id="tip"></div>
+    <details style="margin-top:8px"><summary class="note">表で見る</summary>
+      <table id="chartTable" style="width:100%;font-size:13px;font-variant-numeric:tabular-nums"></table>
+    </details>
+  </div>
+  <h2>商品別の仕入れ値・送料（円）</h2>
+  <div class="seg">
+    <button id="fltUnfilled" class="on">未入力のみ</button>
+    <button id="fltAll">全件</button>
+  </div>
+  <div id="costList"></div>
+</main>
+<div class="savebar" id="savebar">
+  <button id="saveBtn">変更を保存（GitHubにコミット）</button>
+</div>
+
+<dialog id="settings">
+  <strong>接続設定</strong>
+  <p class="note">データはあなたのGitHubリポジトリから直接読み書きします。トークンはこの端末（localStorage）にのみ保存されます。</p>
+  <label>リポジトリ（owner/repo）</label><input id="cfgRepo" placeholder="haruki-aiai/dokidoki-agents">
+  <label>ブランチ</label><input id="cfgBranch" placeholder="main">
+  <label>Fine-grained PAT（Contents: Read and write）</label><input id="cfgToken" type="password" placeholder="github_pat_…">
+  <div class="actions">
+    <button id="cfgCancel">閉じる</button>
+    <button class="primary" id="cfgSave">保存して再読込</button>
+  </div>
+</dialog>
+
+<script>
+"use strict";
+const $ = (s) => document.querySelector(s);
+const DEMO = new URLSearchParams(location.search).has("demo");
+const LS = "ebay-expense-cfg";
+let cfg = Object.assign({ repo: "haruki-aiai/dokidoki-agents", branch: "main", token: "" },
+                        JSON.parse(localStorage.getItem(LS) || "{}"));
+let reports = [];          // [{name, path}]
+let summary = null;        // 選択中レポートのJSON
+let costRows = [];         // item_costs.csv の行（オブジェクト）
+let costHeader = [];       // 列名
+let costSha = null;        // 保存時に必要
+let dirty = new Set();     // 変更された order_number
+let filterUnfilled = true;
+
+/* ---------- GitHub Contents API ---------- */
+const api = (p) => `https://api.github.com/repos/${cfg.repo}/contents/${p}?ref=${encodeURIComponent(cfg.branch)}`;
+const headers = () => ({ Accept: "application/vnd.github+json",
+                         ...(cfg.token ? { Authorization: "Bearer " + cfg.token } : {}) });
+const b64decode = (b64) => new TextDecoder().decode(
+  Uint8Array.from(atob(b64.replace(/\n/g, "")), c => c.charCodeAt(0)));
+const b64encode = (str) => {
+  const bytes = new TextEncoder().encode(str);
+  let bin = ""; bytes.forEach(b => bin += String.fromCharCode(b));
+  return btoa(bin);
+};
+async function ghGet(path) {
+  const r = await fetch(api(path), { headers: headers() });
+  if (!r.ok) throw new Error(`${path}: HTTP ${r.status}`);
+  return r.json();
+}
+async function ghPut(path, content, sha, message) {
+  const r = await fetch(`https://api.github.com/repos/${cfg.repo}/contents/${path}`, {
+    method: "PUT", headers: headers(),
+    body: JSON.stringify({ message, content: b64encode(content), sha, branch: cfg.branch }),
+  });
+  if (!r.ok) throw new Error(`保存失敗: HTTP ${r.status} ${(await r.text()).slice(0, 200)}`);
+  return r.json();
+}
+
+/* ---------- CSV ---------- */
+function parseCSV(text) {
+  text = text.replace(/^﻿/, "");
+  const rows = []; let row = [], field = "", q = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) {
+      if (c === '"') { if (text[i + 1] === '"') { field += '"'; i++; } else q = false; }
+      else field += c;
+    } else if (c === '"') q = true;
+    else if (c === ",") { row.push(field); field = ""; }
+    else if (c === "\n" || c === "\r") {
+      if (c === "\r" && text[i + 1] === "\n") i++;
+      row.push(field); field = "";
+      if (row.length > 1 || row[0] !== "") rows.push(row);
+      row = [];
+    } else field += c;
+  }
+  if (field !== "" || row.length) { row.push(field); rows.push(row); }
+  return rows;
+}
+const csvField = (v) => /[",\n\r]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v;
+const toCSV = (header, rows) =>
+  "﻿" + [header, ...rows].map(r => r.map(x => csvField(String(x ?? ""))).join(",")).join("\r\n") + "\r\n";
+
+/* ---------- データ読込 ---------- */
+async function loadAll() {
+  banner("");
+  if (DEMO) { loadDemo(); return; }
+  if (!cfg.token) { banner("info", "右上の ⚙︎ からリポジトリとトークンを設定してください。"); openSettings(); return; }
+  try {
+    const list = await ghGet("reports");
+    reports = list.filter(f => f.type === "file" && f.name.endsWith(".json"))
+                  .map(f => ({ name: f.name.replace(".json", ""), path: f.path }))
+                  .sort((a, b) => b.name.localeCompare(a.name));
+    renderPeriods();
+    await loadPeriod(reports[0]?.name);
+    await loadCosts();
+    render();
+  } catch (e) { banner("err", "読み込みに失敗: " + e.message + "（リポジトリ名・ブランチ・トークン権限を確認）"); }
+}
+async function loadPeriod(name) {
+  if (!name) { summary = null; return; }
+  const f = await ghGet(`reports/${name}.json`);
+  summary = JSON.parse(b64decode(f.content));
+}
+async function loadCosts() {
+  try {
+    const f = await ghGet("data/item_costs.csv");
+    costSha = f.sha;
+    const rows = parseCSV(b64decode(f.content));
+    costHeader = rows[0];
+    costRows = rows.slice(1).map(r => Object.fromEntries(costHeader.map((h, i) => [h, r[i] ?? ""])));
+  } catch (e) { costRows = []; costHeader = []; costSha = null; }
+}
+
+/* ---------- 保存 ---------- */
+async function save() {
+  const btn = $("#saveBtn"); btn.disabled = true; btn.textContent = "保存中…";
+  try {
+    if (DEMO) throw new Error("デモモードでは保存できません");
+    const fresh = await ghGet("data/item_costs.csv");   // 競合を避けるため最新shaで
+    const rows = parseCSV(b64decode(fresh.content));
+    const header = rows[0];
+    const byOrder = Object.fromEntries(rows.slice(1).map(r => [r[0], r]));
+    for (const o of dirty) {
+      const src = costRows.find(r => r.order_number === o);
+      const dst = byOrder[o];
+      if (!src || !dst) continue;
+      ["仕入れ値_JPY", "送料_JPY", "メモ"].forEach(col => {
+        const i = header.indexOf(col);
+        if (i >= 0) dst[i] = src[col];
+      });
+    }
+    const csv = toCSV(header, Object.values(byOrder).sort((a, b) =>
+      (a[1] || "").localeCompare(b[1] || "") || a[0].localeCompare(b[0])));
+    await ghPut("data/item_costs.csv", csv, fresh.sha,
+      `costs: 仕入れ値・送料を入力（${dirty.size}件, モバイルアプリから）`);
+    dirty.clear();
+    await loadCosts(); render();
+    banner("info", "保存しました。次回レポート生成時に最終利益へ反映されます。");
+  } catch (e) { banner("err", e.message); }
+  btn.disabled = false; btn.textContent = "変更を保存（GitHubにコミット）";
+}
+
+/* ---------- 描画 ---------- */
+const fmtUSD = (v) => "$" + Number(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmtJPY = (v) => "¥" + Math.round(Number(v)).toLocaleString("ja-JP");
+function banner(kind, msg) {
+  $("#banner").innerHTML = msg ? `<div class="banner ${kind}">${msg}</div>` : "";
+}
+function renderPeriods() {
+  $("#periodSel").innerHTML = reports.map(r => `<option value="${r.name}">${r.name.replace("_", "〜")}</option>`).join("");
+}
+function render() {
+  if (!summary) return;
+  const s = summary;
+  const months = s.months || [];
+  const inPeriod = costRows.filter(r => months.some(m => (r.date || "").startsWith(m)));
+  const filled = inPeriod.filter(r => r["仕入れ値_JPY"] || r["送料_JPY"]);
+  const itemCost = inPeriod.reduce((a, r) =>
+    a + (parseFloat(r["仕入れ値_JPY"]) || 0) + (parseFloat(r["送料_JPY"]) || 0), 0);
+
+  const finalTile = s.realized_jpy && s.effective_rate
+    ? { k: "最終利益（実効レート換算）", v: fmtJPY(Number(s.ebay_pl_net_usd) * Number(s.effective_rate) - itemCost), s: `実効レート ${Number(s.effective_rate).toFixed(2)} JPY/USD・原価入力 ${filled.length}/${inPeriod.length}件` }
+    : { k: "eBay純利益 − 入力済み原価", v: (itemCost ? `${fmtUSD(s.ebay_pl_net_usd)} − ${fmtJPY(itemCost)}` : fmtUSD(s.ebay_pl_net_usd)), s: `円換算はレート確定後・原価入力 ${filled.length}/${inPeriod.length}件` };
+
+  $("#tiles").innerHTML = [
+    `<div class="tile hero"><div class="k">${finalTile.k}</div><div class="v">${finalTile.v}</div><div class="s">${finalTile.s}</div></div>`,
+    tile("売上（gross）", fmtUSD(s.gross_sales_usd), `${s.orders}注文`),
+    tile("eBay手数料", fmtUSD(s.ebay_fees_usd), "返金還付控除後"),
+    tile("返金影響", fmtUSD(s.refunds_net_usd), "", Number(s.refunds_net_usd) < 0 ? "neg" : ""),
+    tile("Payout（Payoneerへ）", fmtUSD(s.payouts_usd), `${s.payout_count}回`),
+  ].join("");
+
+  renderChart(s.monthly || {});
+  renderCosts(inPeriod);
+}
+const tile = (k, v, sub, cls = "") =>
+  `<div class="tile"><div class="k">${k}</div><div class="v ${cls}">${v}</div><div class="s">${sub || ""}</div></div>`;
+
+function renderChart(monthly) {
+  const entries = Object.entries(monthly).sort((a, b) => a[0].localeCompare(b[0]))
+    .map(([m, d]) => [m, parseFloat(d.pl_net || 0)]);
+  const show = entries.length >= 2;
+  $("#chartCard").style.display = show ? "" : "none";
+  $("#chartH").style.display = show ? "" : "none";
+  if (!show) return;
+  const svg = $("#chart"); const W = svg.clientWidth || 600, H = 180;
+  const pad = { l: 8, r: 8, t: 16, b: 22 };
+  const max = Math.max(...entries.map(e => e[1]), 0), min = Math.min(...entries.map(e => e[1]), 0);
+  const y = (v) => pad.t + (max - v) / (max - min || 1) * (H - pad.t - pad.b);
+  const bw = Math.min(64, (W - pad.l - pad.r) / entries.length - 12);
+  let g = `<line class="grid" x1="${pad.l}" x2="${W - pad.r}" y1="${y(0)}" y2="${y(0)}"/>`;
+  const cs = getComputedStyle(document.documentElement);
+  const series = cs.getPropertyValue("--series").trim();
+  entries.forEach(([m, v], i) => {
+    const cx = pad.l + (i + .5) * (W - pad.l - pad.r) / entries.length;
+    const x = cx - bw / 2, y0 = y(0), y1 = y(v);
+    const top = Math.min(y0, y1), h = Math.abs(y0 - y1), r = Math.min(4, h);
+    const d = v >= 0
+      ? `M${x},${y0} L${x},${top + r} Q${x},${top} ${x + r},${top} L${x + bw - r},${top} Q${x + bw},${top} ${x + bw},${top + r} L${x + bw},${y0} Z`
+      : `M${x},${y0} L${x},${top + h - r} Q${x},${top + h} ${x + r},${top + h} L${x + bw - r},${top + h} Q${x + bw},${top + h} ${x + bw},${top + h - r} L${x + bw},${y0} Z`;
+    g += `<path d="${d}" fill="${series}" data-m="${m}" data-v="${v}" style="cursor:pointer"/>`;
+    g += `<text x="${cx}" y="${H - 6}" text-anchor="middle">${m.slice(5)}月</text>`;
+  });
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.innerHTML = g;
+  $("#chartTable").innerHTML = `<tr><th style="text-align:left">月</th><th style="text-align:right">eBay純利益</th></tr>` +
+    entries.map(([m, v]) => `<tr><td>${m}</td><td style="text-align:right">${fmtUSD(v)}</td></tr>`).join("");
+  svg.querySelectorAll("path").forEach(p => {
+    const showTip = (ev) => {
+      const tip = $("#tip"); const r = p.getBoundingClientRect(), c = $("#chartCard").getBoundingClientRect();
+      tip.textContent = `${p.dataset.m}: ${fmtUSD(p.dataset.v)}`;
+      tip.style.left = (r.left - c.left + r.width / 2) + "px";
+      tip.style.top = (r.top - c.top) + "px";
+      tip.style.display = "block";
+    };
+    p.addEventListener("pointerenter", showTip);
+    p.addEventListener("click", showTip);
+    p.addEventListener("pointerleave", () => $("#tip").style.display = "none");
+  });
+}
+
+function renderCosts(inPeriod) {
+  const rows = inPeriod
+    .filter(r => !filterUnfilled || !(r["仕入れ値_JPY"] || r["送料_JPY"]))
+    .sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+  $("#costList").innerHTML = rows.length ? rows.map(r => {
+    const unfilled = !(r["仕入れ値_JPY"] || r["送料_JPY"]);
+    return `<div class="row ${unfilled ? "unfilled" : ""}" data-order="${r.order_number}">
+      <div class="t">${esc(r.item_title || "(不明)")}${r["返金"] ? '<span class="chip refund">返金あり</span>' : ""}</div>
+      <div class="m">${r.date}・売上 ${fmtUSD(r.net_usd || 0)}・#${r.order_number}</div>
+      <div class="inputs">
+        <div><label>仕入れ値（円）</label><input type="text" inputmode="numeric" data-col="仕入れ値_JPY" value="${esc(r["仕入れ値_JPY"])}" placeholder="例: 48000"></div>
+        <div><label>送料（円）</label><input type="text" inputmode="numeric" data-col="送料_JPY" value="${esc(r["送料_JPY"])}" placeholder="例: 2350"></div>
+        <div class="memo"><label>メモ</label><input type="text" data-col="メモ" value="${esc(r["メモ"])}"></div>
+      </div>
+    </div>`;
+  }).join("") : `<p class="note">対象の注文はありません。</p>`;
+  $("#costList").querySelectorAll("input").forEach(inp => {
+    inp.addEventListener("input", () => {
+      const order = inp.closest(".row").dataset.order;
+      const row = costRows.find(r => r.order_number === order);
+      if (!row) return;
+      row[inp.dataset.col] = inp.value.trim();
+      dirty.add(order);
+      $("#savebar").classList.add("show");
+    });
+  });
+}
+const esc = (s) => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+/* ---------- デモ ---------- */
+function loadDemo() {
+  reports = [{ name: "2026-04_2026-06" }];
+  summary = { period: "2026-04_2026-06", months: ["2026-04", "2026-05", "2026-06"], orders: 29,
+    gross_sales_usd: "11379.63", ebay_fees_usd: "1603.82", refunds_net_usd: "-1855.44",
+    ebay_pl_net_usd: "7496.39", payouts_usd: "7246.26", payout_count: 17,
+    monthly: { "2026-04": { pl_net: "407.91" }, "2026-05": { pl_net: "4596.51" }, "2026-06": { pl_net: "2491.97" } } };
+  costHeader = ["order_number", "date", "item_title", "quantity", "net_usd", "仕入れ値_JPY", "送料_JPY", "メモ", "返金"];
+  costRows = [
+    { order_number: "13-14829-40182", date: "2026-06-29", item_title: "Shimano Calcutta Conquest BFS XG Limited 26", quantity: "1", net_usd: "374.10", "仕入れ値_JPY": "", "送料_JPY": "", "メモ": "", "返金": "" },
+    { order_number: "04-14839-22425", date: "2026-06-28", item_title: "Shimano Calcutta Conquest BFS XG Limited 26 ×2", quantity: "2", net_usd: "751.05", "仕入れ値_JPY": "96000", "送料_JPY": "4700", "メモ": "", "返金": "" },
+    { order_number: "19-14782-75733", date: "2026-06-20", item_title: "1/12 Tamiya Porsche Carrera GT", quantity: "1", net_usd: "532.63", "仕入れ値_JPY": "", "送料_JPY": "", "メモ": "", "返金": "あり" },
+  ];
+  renderPeriods(); render();
+  banner("info", "デモモード（保存不可・実データ未接続）");
+}
+
+/* ---------- 設定・イベント ---------- */
+function openSettings() {
+  $("#cfgRepo").value = cfg.repo; $("#cfgBranch").value = cfg.branch; $("#cfgToken").value = cfg.token;
+  $("#settings").showModal();
+}
+$("#settingsBtn").addEventListener("click", openSettings);
+$("#cfgCancel").addEventListener("click", () => $("#settings").close());
+$("#cfgSave").addEventListener("click", () => {
+  cfg = { repo: $("#cfgRepo").value.trim() || cfg.repo,
+          branch: $("#cfgBranch").value.trim() || "main",
+          token: $("#cfgToken").value.trim() };
+  localStorage.setItem(LS, JSON.stringify(cfg));
+  $("#settings").close(); loadAll();
+});
+$("#periodSel").addEventListener("change", async (e) => {
+  try { await loadPeriod(e.target.value); render(); } catch (err) { banner("err", err.message); }
+});
+$("#fltUnfilled").addEventListener("click", () => { filterUnfilled = true; toggleSeg(); render(); });
+$("#fltAll").addEventListener("click", () => { filterUnfilled = false; toggleSeg(); render(); });
+const toggleSeg = () => { $("#fltUnfilled").classList.toggle("on", filterUnfilled);
+                          $("#fltAll").classList.toggle("on", !filterUnfilled); };
+$("#saveBtn").addEventListener("click", save);
+window.addEventListener("resize", () => summary && renderChart(summary.monthly || {}));
+loadAll();
+</script>
+</body>
+</html>
