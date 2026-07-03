@@ -96,7 +96,9 @@
   <a class="icon-btn" href="./home.html" aria-label="ホーム" style="text-decoration:none">🏠</a>
   <h1>eBay 経費・利益</h1>
   <select id="periodSel" aria-label="期間"></select>
+  <button class="icon-btn" id="importBtn" aria-label="eBayのCSVを取り込む" title="eBayのCSVを取り込む">📥</button>
   <button class="icon-btn" id="settingsBtn" aria-label="設定">⚙︎</button>
+  <input type="file" id="csvFile" accept=".csv,text/csv" hidden>
 </header>
 <main>
   <div id="banner"></div>
@@ -165,9 +167,11 @@ async function ghGet(path) {
   return r.json();
 }
 async function ghPut(path, content, sha, message) {
+  const body = { message, content: b64encode(content), branch: cfg.branch };
+  if (sha) body.sha = sha;
   const r = await fetch(`https://api.github.com/repos/${cfg.repo}/contents/${path}`, {
     method: "PUT", headers: headers(),
-    body: JSON.stringify({ message, content: b64encode(content), sha, branch: cfg.branch }),
+    body: JSON.stringify(body),
   });
   if (!r.ok) throw new Error(`保存失敗: HTTP ${r.status} ${(await r.text()).slice(0, 200)}`);
   return r.json();
@@ -256,6 +260,217 @@ async function save() {
     banner("info", "保存しました。次回レポート生成時に最終利益へ反映されます。");
   } catch (e) { banner("err", e.message); }
   btn.disabled = false; btn.textContent = "変更を保存（GitHubにコミット）";
+}
+
+/* ---------- eBay CSV 取込（scripts/ebay_expense_report.py と同じ会計ルール） ---------- */
+const TYPE_RULES = [
+  ["payout","payouts"],["transfer","transfers"],["charge","charges"],["hold","holds"],
+  ["reserve","holds"],["adjustment","adjustments"],["refund","refunds"],
+  ["shipping label","shipping_labels"],["label","shipping_labels"],["claim","disputes"],
+  ["dispute","disputes"],["withheld tax","withheld_tax"],["purchase","purchases"],
+  ["order","orders"],["fee","other_fees"],
+];
+const PL_BUCKETS = new Set(["orders","refunds","other_fees","shipping_labels","disputes",
+                            "adjustments","withheld_tax","purchases","holds"]);
+const MONTH_NAMES = { jan:1,feb:2,mar:3,apr:4,may:5,jun:6,jul:7,aug:8,sep:9,oct:10,nov:11,dec:12 };
+
+function parseAmount(raw) {
+  if (raw == null) return null;
+  let s = String(raw).trim().replace(/,/g,"").replace(/\$/g,"").replace(/^US /,"");
+  if (s === "" || s === "--" || s === "-") return null;
+  let neg = false;
+  if (s.startsWith("(") && s.endsWith(")")) { neg = true; s = s.slice(1,-1); }
+  const v = parseFloat(s);
+  if (!isFinite(v)) return null;
+  return neg ? -v : v;
+}
+function parseDateStr(raw) {
+  if (!raw) return null;
+  const s = String(raw).trim().replace(/^"+|"+$/g,"");
+  let m = s.match(/^(\d{1,2})\s+(\d{1,2}),\s*(\d{4})$/);              // "6 30, 2026"
+  if (m) return `${m[3]}-${String(m[1]).padStart(2,"0")}-${String(m[2]).padStart(2,"0")}`;
+  m = s.match(/^([A-Za-z]{3,})[\s-](\d{1,2})[,\s-]+(\d{4})/);         // "Jun 2 2026" / "Jun-02-2026"
+  if (m) { const mo = MONTH_NAMES[m[1].slice(0,3).toLowerCase()]; if (mo) return `${m[3]}-${String(mo).padStart(2,"0")}-${String(m[2]).padStart(2,"0")}`; }
+  m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);                            // ISO
+  if (m) return `${m[1]}-${m[2]}-${m[3]}`;
+  m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);                      // 6/30/2026
+  if (m) return `${m[3]}-${String(m[1]).padStart(2,"0")}-${String(m[2]).padStart(2,"0")}`;
+  return null;
+}
+function monthRange(a, b) {
+  const out = []; let [y,m] = a.split("-").map(Number); const [ey,em] = b.split("-").map(Number);
+  while (y < ey || (y === ey && m <= em)) { out.push(`${y}-${String(m).padStart(2,"0")}`); m++; if (m === 13) { y++; m = 1; } }
+  return out;
+}
+const f2 = (v) => (Math.round(v * 100) / 100).toFixed(2);
+
+function buildFromCsv(text) {
+  const rows = parseCSV(text);
+  let h = -1;
+  for (let i = 0; i < Math.min(rows.length, 30); i++) {
+    const cells = rows[i].map(c => c.trim().toLowerCase());
+    if (cells.includes("type") && cells.some(c => c.includes("date"))) { h = i; break; }
+  }
+  if (h < 0) throw new Error("eBayのTransaction report CSVではないようです（Type列＋日付列のヘッダーが見つかりません）");
+  const header = rows[h].map(c => c.trim()); const lower = header.map(c => c.toLowerCase());
+  const col = (...ks) => { for (let i = 0; i < lower.length; i++) if (ks.every(k => lower[i].includes(k))) return i; return -1; };
+  const iDate = col("transaction","date") >= 0 ? col("transaction","date") : col("date");
+  const iType = lower.indexOf("type"), iOrder = col("order number"), iNet = col("net amount"),
+        iGross = col("gross transaction"), iTxn = col("transaction currency"),
+        iPay = col("payout currency"), iTitle = col("item title"), iQty = col("quantity");
+  const feeCols = []; lower.forEach((n,i) => { if (n.includes("fee") || n === "charity donation") feeCols.push(i); });
+  const cell = (row,i) => (i >= 0 && i < row.length) ? String(row[i]).trim() : "";
+
+  const data = [];
+  for (let r = h + 1; r < rows.length; r++) {
+    const row = rows[r];
+    if (!row.some(c => c && c.trim())) continue;
+    const iso = parseDateStr(cell(row,iDate));
+    if (!iso) continue;
+    data.push({ row, iso, month: iso.slice(0,7) });
+  }
+  if (!data.length) throw new Error("取引行が見つかりませんでした");
+
+  // 外貨注文：注文単位の実効レート（USD net ÷ 外貨(gross+手数料)）
+  const foreign = new Set();
+  data.forEach(({row}, idx) => {
+    const t = cell(row,iTxn), p = cell(row,iPay) || "USD";
+    if (t && t !== "--" && t !== p) foreign.add(cell(row,iOrder) || ("__r"+idx));
+  });
+  const fx = {};
+  data.forEach(({row}, idx) => {
+    const key = cell(row,iOrder) || ("__r"+idx);
+    if (!foreign.has(key)) return;
+    const g = fx[key] = fx[key] || { net: 0, txn: 0 };
+    const net = parseAmount(cell(row,iNet)); if (net != null) g.net += net;
+    const gr = parseAmount(cell(row,iGross)); if (gr != null) g.txn += gr;
+    feeCols.forEach(i => { const f = parseAmount(cell(row,i)); if (f != null) g.txn += f; });
+  });
+  const implied = {};
+  Object.entries(fx).forEach(([k,g]) => { if (g.txn && g.net) implied[k] = g.net / g.txn; });
+
+  // 集計
+  const net = {}, fees = {}, monthly = {}, orderInfo = {}, refundsBy = {};
+  const orderIds = new Set(); let gross = 0, payoutCount = 0, unknown = 0;
+  const addM = (m,k,v) => { (monthly[m] = monthly[m] || {})[k] = (monthly[m][k] || 0) + v; };
+  data.forEach(({row, iso, month}, idx) => {
+    const tl = cell(row,iType).toLowerCase();
+    let bucket = "unknown";
+    if (tl) for (const [kw,b] of TYPE_RULES) { if (tl.includes(kw)) { bucket = b; break; } }
+    const key = cell(row,iOrder) || ("__r"+idx);
+    const rate = foreign.has(key) ? (implied[key] > 0 ? implied[key] : 1) : 1;
+    const n = parseAmount(cell(row,iNet)), g = parseAmount(cell(row,iGross));
+    net[bucket] = (net[bucket] || 0) + (n || 0);
+    if (bucket === "unknown") unknown++;
+    if (bucket === "orders") {
+      const o = cell(row,iOrder);
+      if (o) {
+        orderIds.add(o);
+        const info = orderInfo[o] = orderInfo[o] || { date: iso, title: "", qty: 0, net: 0 };
+        const t = cell(row,iTitle); if (t && t !== "--" && !info.title) info.title = t;
+        const q = parseAmount(cell(row,iQty)); if (q) info.qty += q;
+        if (n != null) info.net += n;
+      }
+      if (g != null) { gross += g * rate; addM(month, "gross", g * rate); }
+    }
+    if (bucket === "refunds" && cell(row,iOrder) && n != null)
+      refundsBy[cell(row,iOrder)] = (refundsBy[cell(row,iOrder)] || 0) + n;
+    if (bucket === "payouts") { payoutCount++; if (n != null) addM(month, "payouts", -n); }
+    if (["orders","refunds","other_fees","shipping_labels","disputes"].includes(bucket))
+      feeCols.forEach(i => { const f = parseAmount(cell(row,i)); if (f) fees[header[i]] = (fees[header[i]] || 0) + f * rate; });
+    if (PL_BUCKETS.has(bucket) && n != null) {
+      addM(month, "pl_net", n);
+      if (bucket === "refunds") addM(month, "refunds", n);
+    }
+  });
+
+  const monthsSeen = Object.keys(monthly).sort();
+  const months = monthRange(monthsSeen[0], monthsSeen[monthsSeen.length - 1]);
+  const period = months.length === 1 ? months[0] : `${months[0]}_${months[months.length-1]}`;
+  const feeBreakdown = {};
+  Object.entries(fees).forEach(([k,v]) => { if (Math.round(v*100)) feeBreakdown[k] = f2(-v); });
+  const feesTotal = -Object.values(fees).reduce((a,v) => a + v, 0);   // 丸め前に合計（1セント誤差防止）
+  const plNet = [...PL_BUCKETS].reduce((a,b) => a + (net[b] || 0), 0);
+  const issues = [];
+  if (unknown) issues.push(`分類不能な行 ${unknown}件（集計漏れの可能性）`);
+  if (Math.abs(net.holds || 0) > 0.005) issues.push(`Hold/Reserveが期間内で未相殺（残 $${f2(net.holds)}）`);
+
+  const summary = {
+    period, months, orders: orderIds.size,
+    gross_sales_usd: f2(gross),
+    ebay_fees_usd: f2(feesTotal),
+    fee_breakdown: feeBreakdown,
+    refunds_net_usd: f2(net.refunds || 0),
+    ebay_pl_net_usd: f2(plNet),
+    payouts_usd: f2(-(net.payouts || 0)),
+    payout_count: payoutCount,
+    charges_excluded_usd: f2(net.charges || 0),
+    realized_jpy: null, effective_rate: null,
+    manual_expenses: {}, item_costs_jpy: "0",
+    monthly: Object.fromEntries(Object.entries(monthly).map(([m,d]) =>
+      [m, Object.fromEntries(Object.entries(d).map(([k,v]) => [k, f2(v)]))])),
+    issues, source: "app-import",
+  };
+  return { summary, orderInfo, refundsBy };
+}
+
+const COST_COLS = ["order_number","date","item_title","quantity","net_usd","仕入れ値_JPY","送料_JPY","メモ","返金"];
+async function mergeCostSheet(orderInfo, refundsBy) {
+  let sha = null; const byOrder = {};
+  try {
+    const f = await ghGet("data/item_costs.csv");
+    sha = f.sha;
+    const rows = parseCSV(b64decode(f.content));
+    const hdr = rows[0].map(c => c.trim());
+    rows.slice(1).forEach(r => {
+      const o = {}; hdr.forEach((hn,i) => o[hn] = r[i] ?? "");
+      if (o.order_number) byOrder[o.order_number] = o;
+    });
+  } catch (e) { /* 初回はファイルなし */ }
+  let added = 0;
+  Object.entries(orderInfo).forEach(([o, info]) => {
+    if (!byOrder[o]) {
+      byOrder[o] = { order_number: o, date: info.date, item_title: info.title,
+        quantity: String(info.qty || ""), net_usd: f2(info.net),
+        "仕入れ値_JPY": "", "送料_JPY": "", "メモ": "", "返金": "" };
+      added++;
+    }
+  });
+  Object.keys(refundsBy).forEach(o => { if (byOrder[o]) byOrder[o]["返金"] = "あり"; });
+  const sorted = Object.values(byOrder).sort((a,b) =>
+    (a.date || "").localeCompare(b.date || "") || a.order_number.localeCompare(b.order_number));
+  const csv = toCSV(COST_COLS, sorted.map(r => COST_COLS.map(c => r[c] ?? "")));
+  await ghPut("data/item_costs.csv", csv, sha, `costs: CSV取込で注文${added}件を追加（アプリから）`);
+  return added;
+}
+
+async function importCsv(file) {
+  if (DEMO) { banner("err", "デモモードでは取込できません"); return; }
+  if (!cfg.token) { banner("info", "先に ⚙︎ でGitHub接続を設定してください。"); openSettings(); return; }
+  const btn = $("#importBtn"); btn.disabled = true;
+  try {
+    banner("info", "⏳ CSVを解析中…");
+    const { summary, orderInfo, refundsBy } = buildFromCsv(await file.text());
+    banner("info", "⏳ GitHubへ保存中…");
+    const added = await mergeCostSheet(orderInfo, refundsBy);
+    let sha = null;
+    try { sha = (await ghGet(`reports/${summary.period}.json`)).sha; } catch (e) {}
+    await ghPut(`reports/${summary.period}.json`,
+      JSON.stringify(summary, null, 2) + "\n", sha,
+      `reports: ${summary.period} をアプリのCSV取込で更新`);
+    await loadAll();
+    if (reports.some(r => r.name === summary.period)) {
+      $("#periodSel").value = summary.period;
+      await loadPeriod(summary.period); render();
+    }
+    banner("info", `✅ 取込完了：${summary.period} の注文${summary.orders}件を集計（原価シートに新規${added}件）。`
+      + `あとは下の一覧に仕入れ値と送料を入れて保存するだけです。`
+      + (summary.issues.length ? `<br>⚠️ ${summary.issues.join(" / ")}` : ""));
+  } catch (e) {
+    banner("err", "取込失敗: " + e.message);
+  } finally {
+    btn.disabled = false; $("#csvFile").value = "";
+  }
 }
 
 /* ---------- 描画 ---------- */
@@ -405,6 +620,8 @@ $("#fltAll").addEventListener("click", () => { filterUnfilled = false; toggleSeg
 const toggleSeg = () => { $("#fltUnfilled").classList.toggle("on", filterUnfilled);
                           $("#fltAll").classList.toggle("on", !filterUnfilled); };
 $("#saveBtn").addEventListener("click", save);
+$("#importBtn").addEventListener("click", () => $("#csvFile").click());
+$("#csvFile").addEventListener("change", (e) => { if (e.target.files[0]) importCsv(e.target.files[0]); });
 window.addEventListener("resize", () => summary && renderChart(summary.monthly || {}));
 loadAll();
 </script>

@@ -62,7 +62,7 @@
       <div class="arrow">›</div>
     </div>
     <div class="d">1件ずつの売上を、eBayのスクショから自動入力（またはワンタップ手入力）。原価・送料を足すとその場で利益プレビュー。累計・月次・カテゴリ別を集計。</div>
-    <div class="tags"><span class="tag">スクショOCR</span><span class="tag">Googleシート同期</span><span class="tag">オフライン</span></div>
+    <div class="tags"><span class="tag">スクショOCR</span><span class="tag">GitHub同期</span><span class="tag">オフライン</span></div>
   </a>
 
   <a class="tool" href="./expense.html">
@@ -71,13 +71,13 @@
       <div class="t">レポート・最終利益</div>
       <div class="arrow">›</div>
     </div>
-    <div class="d">eBayの取引レポートCSVから、手数料の内訳・返金・Payoutを正確に集計。Payoneer着金の実効レートで円建ての最終利益を確定。商品別の仕入れ値・送料もここで入力。</div>
-    <div class="tags"><span class="tag">CSV自動集計</span><span class="tag">Payoneer現金化</span><span class="tag">GitHub同期</span></div>
+    <div class="d">eBayの取引レポートCSVを📥ボタンで取り込むだけで、全取引・手数料の内訳・返金・Payoutを自動集計。あとは商品別の仕入れ値・送料を入力するだけで最終利益が出ます。</div>
+    <div class="tags"><span class="tag">CSV取込で全自動入力</span><span class="tag">Payoneer現金化</span><span class="tag">GitHub同期</span></div>
   </a>
 
   <div class="note">
-    2つのツールはデータの持ち方が異なります（記録＝Googleシート／レポート＝GitHubのCSV）。
-    当面はそれぞれの強みで併用し、将来1つのデータ源に統合できます。詳細は <code>webapp/README.md</code>。
+    どちらのツールもデータは dokidoki-agents（非公開リポジトリ）に保存されます。
+    日々の速報は「記録」、月次の締めと正確な最終利益は「レポート」。詳細は <code>webapp/README.md</code>。
   </div>
 </div>
 </body>
