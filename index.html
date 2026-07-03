@@ -43,14 +43,17 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Yu Goth
 /* ── Layout ── */
 .app { display: flex; flex-direction: column; height: 100vh; }
 .topbar { background: var(--card); border-bottom: 1px solid var(--border);
-          padding: 12px 16px; display: flex; align-items: center; justify-content: space-between;
-          flex-shrink: 0; }
+          padding: calc(12px + env(safe-area-inset-top, 0px)) 16px 12px;
+          display: flex; align-items: center; justify-content: space-between;
+          gap: 8px; flex-shrink: 0; }
 .topbar-title { font-size: 15px; font-weight: 700; }
 .topbar-sub { font-size: 11px; color: var(--sub); margin-top: 1px; }
-.content { flex: 1; overflow-y: auto; padding: 14px 14px calc(var(--nav-h) + 14px); }
+.content { flex: 1; overflow-y: auto;
+           padding: 14px 14px calc(var(--nav-h) + env(safe-area-inset-bottom, 0px) + 14px); }
 
 /* ── Bottom nav ── */
-.nav { position: fixed; bottom: 0; left: 0; right: 0; height: var(--nav-h);
+.nav { position: fixed; bottom: 0; left: 0; right: 0;
+       height: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px));
        background: var(--card); border-top: 1px solid var(--border);
        display: flex; z-index: 100; }
 .nav-item { flex: 1; display: flex; flex-direction: column; align-items: center;
@@ -161,7 +164,7 @@ tbody td { padding: 9px 8px; vertical-align: middle; }
 .loading-row { display: flex; align-items: center; gap: 10px; padding: 12px; font-size: 13px; color: var(--sub); }
 
 /* ── Toast ── */
-.toast { position: fixed; bottom: calc(var(--nav-h) + 12px); left: 50%;
+.toast { position: fixed; bottom: calc(var(--nav-h) + env(safe-area-inset-bottom, 0px) + 12px); left: 50%;
          transform: translateX(-50%) translateY(10px); background: #1a1a1a; color: #fff;
          padding: 10px 18px; border-radius: 24px; font-size: 13px; font-weight: 500;
          opacity: 0; transition: all 0.22s; pointer-events: none; z-index: 999; white-space: nowrap; }
@@ -196,9 +199,9 @@ tbody td { padding: 9px 8px; vertical-align: middle; }
       <div class="topbar-title">eBay 収支管理</div>
       <div class="topbar-sub" id="topbar-sub">読み込み中…</div>
     </div>
-    <div style="display:flex;gap:6px">
-      <a class="btn btn-sm" href="./home.html" title="ホーム" style="text-decoration:none">🏠</a>
-      <button class="btn btn-sm" onclick="openSettings()">設定</button>
+    <div style="display:flex;gap:8px">
+      <a class="btn" href="./home.html" title="ホーム" style="text-decoration:none;padding:9px 13px;font-size:16px;line-height:1">🏠</a>
+      <button class="btn" onclick="openSettings()" style="padding:9px 14px">設定</button>
     </div>
   </div>
   <div class="content" id="content"></div>
