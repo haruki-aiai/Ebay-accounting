@@ -29,6 +29,10 @@
     border-bottom: 1px solid var(--line);
     padding: calc(12px + env(safe-area-inset-top, 0px)) 16px 10px;
     display: flex; gap: 8px; align-items: center; }
+  /* ホーム画面アプリではステータスバー分を必ず確保（env()が0でも47px保証） */
+  @media (display-mode: standalone) {
+    header { padding-top: calc(12px + max(env(safe-area-inset-top, 0px), 47px)); }
+  }
   header h1 { font-size: 17px; margin: 0; flex: 1; font-weight: 700; letter-spacing: .01em; }
   select, input, button, textarea { font: inherit; color: inherit; }
   select { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; }
@@ -126,7 +130,7 @@
 
 <dialog id="settings">
   <strong>接続設定</strong>
-  <p class="note">データはあなたのGitHubリポジトリから直接読み書きします。トークンはこの端末（localStorage）にのみ保存されます。</p>
+  <p class="note">データはあなたのGitHubリポジトリから直接読み書きします。トークンはこの端末（localStorage）にのみ保存されます。（アプリ v3）</p>
   <label>リポジトリ（owner/repo）</label><input id="cfgRepo" placeholder="haruki-aiai/dokidoki-agents">
   <label>ブランチ</label><input id="cfgBranch" placeholder="main">
   <label>Fine-grained PAT（Contents: Read and write）</label><input id="cfgToken" type="password" placeholder="github_pat_…">

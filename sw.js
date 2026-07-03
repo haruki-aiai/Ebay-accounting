@@ -1,8 +1,10 @@
 // eBay会計 サービスワーカー — アプリ本体をキャッシュしてオフライン起動を可能にする
-const CACHE = 'ebay-acct-v3';
+const CACHE = 'ebay-acct-v5';
 const ASSETS = [
   './',
+  './home.html',
   './index.html',
+  './expense.html',
   './manifest.webmanifest',
   './icon-192.png',
   './icon-512.png',

@@ -46,6 +46,11 @@ body { font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Yu Goth
           padding: calc(12px + env(safe-area-inset-top, 0px)) 16px 12px;
           display: flex; align-items: center; justify-content: space-between;
           gap: 8px; flex-shrink: 0; }
+/* ホーム画面アプリ（standalone）ではステータスバー分を必ず確保する。
+   env()が0を返す環境でも47px以上の余白を保証する保険 */
+@media (display-mode: standalone) {
+  .topbar { padding-top: calc(12px + max(env(safe-area-inset-top, 0px), 47px)); }
+}
 .topbar-title { font-size: 15px; font-weight: 700; }
 .topbar-sub { font-size: 11px; color: var(--sub); margin-top: 1px; }
 .content { flex: 1; overflow-y: auto;
@@ -391,7 +396,7 @@ function render() {
   const all = transactions.map(t => calcProfit(t));
   const totalProfit = all.reduce((s,p) => s+p.profit, 0);
   document.getElementById('topbar-sub').textContent =
-    `${transactions.length}件 ・ 累計利益 ¥${fmt(totalProfit)}`;
+    `${transactions.length}件 ・ 累計利益 ¥${fmt(totalProfit)} ・ v3`;
 }
 
 // ── Dashboard ─────────────────────────────────────────────────────────────────
@@ -476,6 +481,7 @@ function renderDashboard() {
 }
 
 function initChart() {
+  if (typeof Chart === 'undefined') return; // CDN未読込（オフライン等）でもグラフ以外は動かす
   const d = window._cd; if (!d||d.months.length===0) return;
   const ctx = document.getElementById('profitChart'); if (!ctx) return;
   chartInstance = new Chart(ctx, {
