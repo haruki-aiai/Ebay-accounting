@@ -130,7 +130,7 @@
 
 <dialog id="settings">
   <strong>接続設定</strong>
-  <p class="note">データはあなたのGitHubリポジトリから直接読み書きします。トークンはこの端末（localStorage）にのみ保存されます。（アプリ v3）</p>
+  <p class="note">データはあなたのGitHubリポジトリから直接読み書きします。トークンはこの端末（localStorage）にのみ保存されます。（アプリ v4）</p>
   <label>リポジトリ（owner/repo）</label><input id="cfgRepo" placeholder="haruki-aiai/dokidoki-agents">
   <label>ブランチ</label><input id="cfgBranch" placeholder="main">
   <label>Fine-grained PAT（Contents: Read and write）</label><input id="cfgToken" type="password" placeholder="github_pat_…">
@@ -262,9 +262,11 @@ async function save() {
       (a[1] || "").localeCompare(b[1] || "") || a[0].localeCompare(b[0])));
     await ghPut("data/item_costs.csv", csv, fresh.sha,
       `costs: 仕入れ値・送料を入力（${dirty.size}件, モバイルアプリから）`);
+    const dirtyOrders = [...dirty];
     dirty.clear();
     await loadCosts(); render();
-    banner("info", "保存しました。次回レポート生成時に最終利益へ反映されます。");
+    await updateTxnCosts(dirtyOrders);   // 取引履歴側の原価も追随
+    banner("info", "保存しました。最終利益と取引履歴に反映されます。");
   } catch (e) { banner("err", e.message); }
   btn.disabled = false; btn.textContent = "変更を保存（GitHubにコミット）";
 }
@@ -373,10 +375,11 @@ function buildFromCsv(text) {
       const o = cell(row,iOrder);
       if (o) {
         orderIds.add(o);
-        const info = orderInfo[o] = orderInfo[o] || { date: iso, title: "", qty: 0, net: 0 };
+        const info = orderInfo[o] = orderInfo[o] || { date: iso, title: "", qty: 0, net: 0, gross: 0 };
         const t = cell(row,iTitle); if (t && t !== "--" && !info.title) info.title = t;
         const q = parseAmount(cell(row,iQty)); if (q) info.qty += q;
         if (n != null) info.net += n;
+        if (g != null) info.gross += g * rate;
       }
       if (g != null) { gross += g * rate; addM(month, "gross", g * rate); }
     }
@@ -448,7 +451,76 @@ async function mergeCostSheet(orderInfo, refundsBy) {
     (a.date || "").localeCompare(b.date || "") || a.order_number.localeCompare(b.order_number));
   const csv = toCSV(COST_COLS, sorted.map(r => COST_COLS.map(c => r[c] ?? "")));
   await ghPut("data/item_costs.csv", csv, sha, `costs: CSV取込で注文${added}件を追加（アプリから）`);
-  return added;
+  return { added, byOrder };
+}
+
+/* ---------- 取引履歴（記録アプリの台帳）への連携 ---------- */
+function guessCategory(title) {
+  const t = (title || "").toLowerCase();
+  if (/reel|shimano|daiwa|calcutta|talica|antares|conquest|baitcast|fishing/.test(t)) return "釣り具";
+  if (/figure|figuarts|nendoroid|amp\+|espresto|robot spirits|frieren/.test(t)) return "フィギュア";
+  if (/game|nintendo|playstation|switch|console/.test(t)) return "ゲーム";
+  if (/snack|dagashi|dokidoki|ramen/.test(t)) return "その他";
+  return "";
+}
+async function syncTransactions(orderInfo, refundsBy, costByOrder) {
+  let sha = null, txns = [];
+  try {
+    const f = await ghGet("data/transactions.json");
+    sha = f.sha;
+    const arr = JSON.parse(b64decode(f.content));
+    if (Array.isArray(arr)) txns = arr;
+  } catch (e) { /* 初回はファイルなし */ }
+  const rate = (JSON.parse(localStorage.getItem("ebay_settings") || "{}").defaultRate) || 155;
+  const byId = Object.fromEntries(txns.map(t => [t.id, t]));
+  let added = 0, updated = 0;
+  for (const [o, info] of Object.entries(orderInfo)) {
+    const id = "ebay_" + o;
+    const refund = refundsBy[o] || 0;
+    const netAfter = info.net + refund;                       // 返金後の実際の手取り
+    const grossUsd = info.gross || info.net;
+    const feeUsd = Math.max(0, Math.round((grossUsd - netAfter) * 100) / 100);
+    const c = costByOrder[o] || {};
+    const prev = byId[id];
+    const qtyNote = info.qty > 1 ? `数量${info.qty}・` : "";
+    const t = {
+      id, date: info.date,
+      name: info.title || "(商品名なし)",
+      // ユーザーが手で直したカテゴリ・レート・メモは上書きしない
+      category: (prev && prev.category) || guessCategory(info.title),
+      salePriceUsd: Math.round(grossUsd * 100) / 100,
+      rate: (prev && prev.rate) || rate,
+      ebayFeeMode: "usd", ebayFeeUsd: feeUsd, ebayFeeRate: 0,
+      costJpy: parseFloat(c["仕入れ値_JPY"]) || (prev && prev.costJpy) || 0,
+      shippingJpy: parseFloat(c["送料_JPY"]) || (prev && prev.shippingJpy) || 0,
+      otherCostJpy: (prev && prev.otherCostJpy) || 0,
+      memo: (prev && prev.memo) || (qtyNote + (refund ? "eBay CSV取込・⚠️返金あり" : "eBay CSV取込")),
+    };
+    if (prev) { Object.assign(prev, t); updated++; }
+    else { txns.push(t); added++; }
+  }
+  await ghPut("data/transactions.json", JSON.stringify(txns, null, 2) + "\n", sha,
+    `txns: CSV取込を取引履歴へ反映（追加${added}・更新${updated}）`);
+  return { added, updated };
+}
+async function updateTxnCosts(orders) {
+  // 原価シート保存時に、取引履歴側の仕入れ値・送料も追随させる
+  try {
+    const f = await ghGet("data/transactions.json");
+    const txns = JSON.parse(b64decode(f.content));
+    if (!Array.isArray(txns)) return;
+    let changed = 0;
+    for (const o of orders) {
+      const t = txns.find(x => x.id === "ebay_" + o);
+      const r = costRows.find(x => x.order_number === o);
+      if (!t || !r) continue;
+      const cost = parseFloat(r["仕入れ値_JPY"]) || 0, ship = parseFloat(r["送料_JPY"]) || 0;
+      if (t.costJpy !== cost || t.shippingJpy !== ship) { t.costJpy = cost; t.shippingJpy = ship; changed++; }
+    }
+    if (changed)
+      await ghPut("data/transactions.json", JSON.stringify(txns, null, 2) + "\n", f.sha,
+        `txns: 原価入力を取引履歴へ反映（${changed}件）`);
+  } catch (e) { /* transactions.json未作成なら何もしない */ }
 }
 
 async function importCsv(file) {
@@ -459,7 +531,8 @@ async function importCsv(file) {
     banner("info", "⏳ CSVを解析中…");
     const { summary, orderInfo, refundsBy } = buildFromCsv(await file.text());
     banner("info", "⏳ GitHubへ保存中…");
-    const added = await mergeCostSheet(orderInfo, refundsBy);
+    const { added, byOrder } = await mergeCostSheet(orderInfo, refundsBy);
+    const tx = await syncTransactions(orderInfo, refundsBy, byOrder);
     let sha = null;
     try { sha = (await ghGet(`reports/${summary.period}.json`)).sha; } catch (e) {}
     await ghPut(`reports/${summary.period}.json`,
@@ -470,7 +543,8 @@ async function importCsv(file) {
       $("#periodSel").value = summary.period;
       await loadPeriod(summary.period); render();
     }
-    banner("info", `✅ 取込完了：${summary.period} の注文${summary.orders}件を集計（原価シートに新規${added}件）。`
+    banner("info", `✅ 取込完了：${summary.period} の注文${summary.orders}件を集計。`
+      + `取引履歴にも反映しました（新規${tx.added}件・更新${tx.updated}件）。`
       + `あとは下の一覧に仕入れ値と送料を入れて保存するだけです。`
       + (summary.issues.length ? `<br>⚠️ ${summary.issues.join(" / ")}` : ""));
   } catch (e) {
